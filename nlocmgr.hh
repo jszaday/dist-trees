@@ -32,11 +32,72 @@ inline int num_leaves(const T &n) {
 }
 }
 
+namespace util {
+inline std::string idx2str(const CkArrayIndex &idx) {
+  auto &nDims = idx.dimension;
+  if (nDims == 1) {
+    return std::to_string(idx.data()[0]);
+  } else {
+    std::stringstream ss;
+    ss << "(";
+    for (auto i = 0; i < nDims; i += 1) {
+      if (nDims >= 4) {
+        ss << idx.shortData()[i] << ",";
+      } else {
+        ss << idx.data()[i] << ",";
+      }
+    }
+    ss << ")";
+    return ss.str();
+  }
+}
+}
+
 class location_manager;
 
-class manageable {
+template <typename T>
+class manageable;
+
+class manageable_base {
   friend class location_manager;
+
+  template <typename T>
+  friend class manageable;
+
   bool is_endpoint_ = false;
+  bool has_upstream_ = false;
+  CkArrayIndex upstream_;  // NOTE should be std::option
+  std::vector<CkArrayIndex> downstream_;
+
+  inline void set_upstream_(const CkArrayIndex &idx) {
+    this->upstream_ = idx;
+    this->has_upstream_ = true;
+  }
+
+  inline std::size_t num_downstream_(void) const {
+    return this->downstream_.size();
+  }
+};
+
+template <typename T>
+class manageable : public T, public manageable_base {
+ public:
+  void ckPrintTree(void) {
+    std::stringstream ss;
+
+    auto upstream =
+        (is_endpoint_) ? "endpoint"
+                       : ((has_upstream_) ? util::idx2str(upstream_) : "unset");
+
+    ss << util::idx2str(this->ckGetArrayIndex()) << "@nd" << CkMyNode();
+    ss << "> has upstream " << upstream << " and downstream [";
+    for (const auto &ds : downstream_) {
+      ss << util::idx2str(ds) << ",";
+    }
+    ss << "]";
+
+    CkPrintf("%s\n", ss.str().c_str());
+  }
 };
 
 class location_manager : public CBase_location_manager, public array_listener {
@@ -44,18 +105,14 @@ class location_manager : public CBase_location_manager, public array_listener {
   using index_type = CkArrayIndex;
   using element_type = ArrayElement *;
 
-  // (NODE, AID, IDX)
-  using update_type = std::tuple<int, CkArrayID, index_type>;
-
-  std::vector<update_type> upstream_;
-  std::vector<update_type> downstream_;
-
   bool set_endpoint_ = false;
 
  protected:
   CmiNodeLock lock_;
   std::vector<CkArrayID> arrays_;
-  std::unordered_map<index_type, int, index_hasher> elements_;
+
+  using record_type = std::pair<element_type, int>;
+  std::unordered_map<index_type, record_type, index_hasher> elements_;
 
   CkArray *spin_to_win(const CkArrayID &aid, const int &rank) {
     if (rank == CkMyRank()) {
@@ -68,6 +125,14 @@ class location_manager : public CBase_location_manager, public array_listener {
       return inst;
     }
   }
+
+  struct endpoint_ {
+    element_type elt_;
+    int node_;
+
+    endpoint_(const element_type &elt) : elt_(elt), node_(-1) {}
+    endpoint_(const int &node) : elt_(nullptr), node_(node) {}
+  };
 
  public:
   location_manager(void) : CkArrayListener(0), lock_(CmiCreateLock()) {}
@@ -104,25 +169,27 @@ class location_manager : public CBase_location_manager, public array_listener {
     if (elt) {
       this->make_endpoint(elt);
     } else {
+      // element has migrated
       NOT_IMPLEMENTED;
     }
     CmiUnlock(lock_);
   }
 
   void receive_upstream(const int &node, const CkArrayID &aid,
-                        const index_type &idx) { NOT_IMPLEMENTED; }
+                        const index_type &idx) {
+    CmiLock(lock_);
+    CkPrintf("nd%d> recvd upstream from %d (%s).\n", CkMyNode(), node,
+             util::idx2str(idx).c_str());
+    this->reg_upstream(aid, idx);
+    CmiUnlock(lock_);
+  }
 
   void receive_downstream(const int &node, const CkArrayID &aid,
                           const index_type &idx) {
     CmiLock(lock_);
-    if (this->elements_.empty()) {
-      if (!this->send_upstream(aid, idx)) {
-        thisProxy[node].make_endpoint(aid, idx);
-        this->set_endpoint_ = true;
-      }
-    } else {
-      NOT_IMPLEMENTED;
-    }
+    CkPrintf("nd%d> recvd downstream from %d (%s).\n", CkMyNode(), node,
+             util::idx2str(idx).c_str());
+    this->reg_downstream(endpoint_(node), aid, idx);
     CmiUnlock(lock_);
   }
 
@@ -130,22 +197,18 @@ class location_manager : public CBase_location_manager, public array_listener {
   element_type lookup(const CkArrayID &aid, const index_type &idx,
                       const bool &lock) {
     if (lock) CmiLock(lock_);
+    element_type elt = nullptr;
     auto search = this->elements_.find(idx);
-    int rank = -1;
     if (search != std::end(this->elements_)) {
-      rank = search->second;
+      elt = search->second.first;
     }
     if (lock) CmiUnlock(lock_);
-    if (rank >= 0) {
-      return spin_to_win(aid, rank)->lookup(idx);
-    } else {
-      return nullptr;
-    }
+    return elt;
   }
 
   void make_endpoint(const element_type &elt) {
     CkAssertMsg(!this->set_endpoint_, "cannot register an endpoint twice");
-    dynamic_cast<manageable *>(elt)->is_endpoint_ = !this->set_endpoint_;
+    dynamic_cast<manageable_base *>(elt)->is_endpoint_ = !this->set_endpoint_;
     this->set_endpoint_ = true;
   }
 
@@ -161,35 +224,95 @@ class location_manager : public CBase_location_manager, public array_listener {
     }
   }
 
-  void first_element(const element_type &elt) {
-    auto sent =
-        this->send_upstream(elt->ckGetArrayID(), elt->ckGetArrayIndex());
-    if (!sent) {
-      this->make_endpoint(elt);
+  using iter_type = typename decltype(elements_)::iterator;
+
+  inline iter_type find_target(const bool &up) {
+    using value_type = typename decltype(this->elements_)::value_type;
+    if (up) {
+      return std::find_if(
+          std::begin(this->elements_), std::end(this->elements_),
+          [](const value_type &val) -> bool {
+            auto val_cast_ = dynamic_cast<manageable_base *>(val.second.first);
+            return !(val_cast_->has_upstream_ || val_cast_->is_endpoint_);
+          });
+    } else {
+      return std::min_element(
+          std::begin(this->elements_), std::end(this->elements_),
+          [](const value_type &lhs, const value_type &rhs) -> bool {
+            // TODO eliminate these casts(!!)
+            auto lhs_cast_ = dynamic_cast<manageable_base *>(lhs.second.first);
+            auto rhs_cast_ = dynamic_cast<manageable_base *>(rhs.second.first);
+            return (lhs_cast_->num_downstream_() <
+                    rhs_cast_->num_downstream_());
+          });
     }
   }
 
-  void reg_element(const element_type &elt) {
+  void reg_upstream(const CkArrayID &aid, const index_type &idx) {
+    auto search = this->find_target(true);
+    if (search == std::end(this->elements_)) {
+      // forward to children?
+      NOT_IMPLEMENTED;
+    } else {
+      auto &target = search->second.first;
+      dynamic_cast<manageable_base *>(target)->set_upstream_(idx);
+    }
+  }
+
+  void reg_downstream(const endpoint_ &ep, const CkArrayID &aid,
+                      const index_type &idx) {
+    if (this->elements_.empty()) {
+      auto sent = this->send_upstream(aid, idx);
+      if (!sent) {
+        if (ep.elt_ != nullptr) {
+          this->make_endpoint(ep.elt_);
+        } else {
+          thisProxy[ep.node_].make_endpoint(aid, idx);
+          this->set_endpoint_ = true;
+        }
+      }
+    } else {
+      auto &target = this->find_target(false)->second.first;
+      dynamic_cast<manageable_base *>(target)->downstream_.emplace_back(idx);
+      auto &targetIdx = target->ckGetArrayIndex();
+      if (ep.elt_ != nullptr) {
+        dynamic_cast<manageable_base *>(ep.elt_)->set_upstream_(targetIdx);
+      } else {
+        thisProxy[ep.node_].receive_upstream(CkMyNode(), aid, targetIdx);
+      }
+    }
+  }
+
+  void associate(const element_type &elt) {
+    this->reg_downstream(endpoint_(elt), elt->ckGetArrayID(),
+                         elt->ckGetArrayIndex());
+  }
+
+  void disassociate(const element_type &elt) {
+    auto self = dynamic_cast<manageable_base *>(elt);
+    if (self->is_endpoint_) {
+      NOT_IMPLEMENTED;
+    } else {
+      NOT_IMPLEMENTED;
+    }
+  }
+
+  void reg_element(const element_type &elt, const bool &created) {
     const auto &idx = elt->ckGetArrayIndex();
     CmiLock(lock_);
-    auto first = this->elements_.empty();
-    this->elements_[idx] = CkMyRank();
-    if (first) {
-      this->first_element(elt);
-    }
+    if (created) associate(elt);
+    this->elements_[idx] = std::make_pair(elt, CkMyRank());
     CmiUnlock(lock_);
   }
 
-  void unreg_element(const element_type &elt) {
+  void unreg_element(const element_type &elt, const bool &died) {
     const auto &idx = elt->ckGetArrayIndex();
     CmiLock(lock_);
     auto search = this->elements_.find(idx);
     if (search != std::end(this->elements_)) {
       this->elements_.erase(search);
     }
-    if (dynamic_cast<manageable *>(elt)->is_endpoint_) {
-      NOT_IMPLEMENTED;
-    }
+    if (died) disassociate(elt);
     CmiUnlock(lock_);
   }
 
@@ -197,22 +320,22 @@ class location_manager : public CBase_location_manager, public array_listener {
   virtual void ckRegister(CkArray *, int) override {}
 
   virtual bool ckElementCreated(ArrayElement *elt) override {
-    this->reg_element(elt);
+    this->reg_element(elt, true);
     return array_listener::ckElementCreated(elt);
   }
 
   virtual bool ckElementArriving(ArrayElement *elt) override {
-    this->reg_element(elt);
+    this->reg_element(elt, false);
     return array_listener::ckElementArriving(elt);
   }
 
   virtual void ckElementDied(ArrayElement *elt) override {
-    this->unreg_element(elt);
+    this->unreg_element(elt, true);
     array_listener::ckElementDied(elt);
   }
 
   virtual void ckElementLeaving(ArrayElement *elt) override {
-    this->unreg_element(elt);
+    this->unreg_element(elt, false);
     array_listener::ckElementLeaving(elt);
   }
 

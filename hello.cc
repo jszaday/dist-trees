@@ -5,11 +5,13 @@
 
 constexpr int kMultiplier = 2;
 
-class Test : public CBase_Test, public manageable {
+class Test : public manageable<CBase_Test> {
  public:
   Test(void) = default;
 
-  void callRing(void) {}
+  void callRing(void) {
+    this->ckPrintTree();
+  }
 
   void ring(const int& homePe) {}
 };
@@ -29,6 +31,10 @@ class Main : public CBase_Main {
     for (auto i = 0; i < n; i += 1) {
       testProxy[i].insert();
     }
+
+    CkWaitQD();
+
+    testProxy.callRing();
 
     CkExitAfterQuiescence();
   }

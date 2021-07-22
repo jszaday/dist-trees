@@ -1,7 +1,7 @@
 mainmodule hello {
   mainchare Main {
     entry [nokeep] Main(CkArgMsg*);
-    entry void run(void);
+    entry [threaded] void run(void);
   };
 
   nodegroup location_manager {
