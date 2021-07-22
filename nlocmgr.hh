@@ -178,8 +178,6 @@ class location_manager : public CBase_location_manager, public array_listener {
   void receive_upstream(const int &node, const CkArrayID &aid,
                         const index_type &idx) {
     CmiLock(lock_);
-    CkPrintf("nd%d> recvd upstream from %d (%s).\n", CkMyNode(), node,
-             util::idx2str(idx).c_str());
     this->reg_upstream(aid, idx);
     CmiUnlock(lock_);
   }
@@ -187,9 +185,11 @@ class location_manager : public CBase_location_manager, public array_listener {
   void receive_downstream(const int &node, const CkArrayID &aid,
                           const index_type &idx) {
     CmiLock(lock_);
-    CkPrintf("nd%d> recvd downstream from %d (%s).\n", CkMyNode(), node,
-             util::idx2str(idx).c_str());
-    this->reg_downstream(endpoint_(node), aid, idx);
+    auto target = this->reg_downstream(endpoint_(node), aid, idx);
+    if (target != nullptr) {
+      thisProxy[node].receive_upstream(CkMyNode(), aid,
+                                       target->ckGetArrayIndex());
+    }
     CmiUnlock(lock_);
   }
 
@@ -259,9 +259,10 @@ class location_manager : public CBase_location_manager, public array_listener {
     }
   }
 
-  void reg_downstream(const endpoint_ &ep, const CkArrayID &aid,
-                      const index_type &idx) {
+  element_type reg_downstream(const endpoint_ &ep, const CkArrayID &aid,
+                              const index_type &idx) {
     if (this->elements_.empty()) {
+      // TODO put this logic elsewhere?
       auto sent = this->send_upstream(aid, idx);
       if (!sent) {
         if (ep.elt_ != nullptr) {
@@ -271,21 +272,21 @@ class location_manager : public CBase_location_manager, public array_listener {
           this->set_endpoint_ = true;
         }
       }
+      return nullptr;
     } else {
       auto &target = this->find_target(false)->second.first;
       dynamic_cast<manageable_base *>(target)->downstream_.emplace_back(idx);
-      auto &targetIdx = target->ckGetArrayIndex();
-      if (ep.elt_ != nullptr) {
-        dynamic_cast<manageable_base *>(ep.elt_)->set_upstream_(targetIdx);
-      } else {
-        thisProxy[ep.node_].receive_upstream(CkMyNode(), aid, targetIdx);
-      }
+      return target;
     }
   }
 
   void associate(const element_type &elt) {
-    this->reg_downstream(endpoint_(elt), elt->ckGetArrayID(),
-                         elt->ckGetArrayIndex());
+    auto target = this->reg_downstream(endpoint_(elt), elt->ckGetArrayID(),
+                                       elt->ckGetArrayIndex());
+    if (target != nullptr) {
+      dynamic_cast<manageable_base *>(elt)
+          ->set_upstream_(target->ckGetArrayIndex());
+    }
   }
 
   void disassociate(const element_type &elt) {
