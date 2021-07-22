@@ -1,68 +1,36 @@
 #ifndef __NODE_LEVEL_LOC_MGR_HH__
 #define __NODE_LEVEL_LOC_MGR_HH__
 
+#include <hypercomm/utilities.hpp>
+#include <hypercomm/core/math.hpp>
+#include <hypercomm/core/locality.hpp>
+#include <hypercomm/sections/identity.hpp>
+
 #include "hello.decl.h"
-#include "ck.h"
 
 #define NOT_IMPLEMENTED CkAbort("not yet implemented")
 
+using namespace hypercomm;
 using index_hasher = IndexHasher;
 using array_id_hasher = ArrayIDHasher;
 using array_listener = CkArrayListener;
-
-namespace binary_tree {
-template <typename T>
-inline T left_child(const T &i) {
-  return (2 * i) + 1;
-}
-
-template <typename T>
-inline T right_child(const T &i) {
-  return (2 * i) + 2;
-}
-
-template <typename T>
-inline T parent(const T &i) {
-  return (i > 0) ? ((i - 1) / 2) : -1;
-}
-
-template <typename T>
-inline int num_leaves(const T &n) {
-  return int(n + 1) / 2;
-}
-}
-
-namespace util {
-inline std::string idx2str(const CkArrayIndex &idx) {
-  auto &nDims = idx.dimension;
-  if (nDims == 1) {
-    return std::to_string(idx.data()[0]);
-  } else {
-    std::stringstream ss;
-    ss << "(";
-    for (auto i = 0; i < nDims; i += 1) {
-      if (nDims >= 4) {
-        ss << idx.shortData()[i] << ",";
-      } else {
-        ss << idx.data()[i] << ",";
-      }
-    }
-    ss << ")";
-    return ss.str();
-  }
-}
-}
 
 class location_manager;
 
 template <typename T>
 class manageable;
 
+template<typename Index>
+class managed_identity;
+
 class manageable_base {
   friend class location_manager;
 
   template <typename T>
   friend class manageable;
+
+  template <typename T>
+  friend class managed_identity;
 
   bool is_endpoint_ = false;
   bool has_upstream_ = false;
@@ -76,6 +44,10 @@ class manageable_base {
 
   inline std::size_t num_downstream_(void) const {
     return this->downstream_.size();
+  }
+
+  inline bool known_upstream_(void) const {
+    return this->has_upstream_ || this->is_endpoint_;
   }
 
   virtual const CkArrayID &get_id_(void) const = 0;
@@ -98,16 +70,41 @@ class manageable : public T, public manageable_base {
 
     auto upstream =
         (is_endpoint_) ? "endpoint"
-                       : ((has_upstream_) ? util::idx2str(upstream_) : "unset");
+                       : ((has_upstream_) ? utilities::idx2str(upstream_) : "unset");
 
-    ss << util::idx2str(this->get_index_()) << "@nd" << CkMyNode();
+    ss << utilities::idx2str(this->get_index_()) << "@nd" << CkMyNode();
     ss << "> has upstream " << upstream << " and downstream [";
     for (const auto &ds : downstream_) {
-      ss << util::idx2str(ds) << ",";
+      ss << utilities::idx2str(ds) << ",";
     }
     ss << "]";
 
     CkPrintf("%s\n", ss.str().c_str());
+  }
+};
+
+template<typename Index>
+class managed_identity: public identity<Index> {
+  CProxy_location_manager mgr_;
+  const manageable_base* inst_;
+
+  managed_identity(const CProxy_location_manager &mgr, const manageable_base *inst)
+  : mgr_(mgr), inst_(inst) {}
+
+  virtual std::vector<Index> upstream(void) const {
+    CkAssert(inst_->known_upstream_());
+    if (inst_->is_endpoint_) {
+      return {};
+    } else {
+      return { conv2idx<Index>(inst_->upstream_) };
+    }
+  }
+
+  virtual std::vector<Index> downstream(void) const {
+    std::vector<Index> ds(inst_->num_downstream_());
+    std::transform(std::begin(inst_->downstream_), std::end(inst_->downstream_), std::begin(ds),
+                  [](const CkArrayIndex& val) { return conv2idx<Index>(val); });
+    return ds;
   }
 };
 
@@ -190,7 +187,7 @@ class location_manager : public CBase_location_manager, public array_listener {
                         const index_type &idx) {
 #if CMK_DEBUG
     CkPrintf("nd%d> received upstream from %d, idx=%s.\n", CkMyNode(), node,
-             util::idx2str(idx).c_str());
+             utilities::idx2str(idx).c_str());
 #endif
     CmiLock(lock_);
     this->reg_upstream(endpoint_(node), aid, idx);
@@ -201,7 +198,7 @@ class location_manager : public CBase_location_manager, public array_listener {
                           const index_type &idx) {
 #if CMK_DEBUG
     CkPrintf("nd%d> received downstream from %d, idx=%s.\n", CkMyNode(), node,
-             util::idx2str(idx).c_str());
+             utilities::idx2str(idx).c_str());
 #endif
     CmiLock(lock_);
     auto target = this->reg_downstream(endpoint_(node), aid, idx);
@@ -261,7 +258,7 @@ class location_manager : public CBase_location_manager, public array_listener {
                           std::end(this->elements_),
                           [](const value_type &val) -> bool {
                             auto &val_ = val.second.first;
-                            return !(val_->has_upstream_ || val_->is_endpoint_);
+                            return !val_->known_upstream_();
                           });
     } else {
       return std::min_element(
