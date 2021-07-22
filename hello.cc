@@ -75,9 +75,25 @@ class Main : public CBase_Main {
     testProxy.make_contribution();
   }
 
+  inline int expected(void) const {
+    auto sum = 0;
+    for (auto i = 0; i < n; i += 1) {
+      sum += i;
+    }
+    return sum;
+  }
+
   void done(CkMessage* msg) {
     auto value = std::make_shared<typed_value<int>>(msg);
-    CkPrintf("main> got value %d from reduction.\n", value->value());
+    auto expected = this->expected();
+
+    if (value->value() != expected) {
+      CkAbort("fatal> got value %d from reduction (expected %d).\n",
+              value->value(), expected);
+    } else {
+      CkPrintf("info> got value %d from reduction.\n", value->value());
+    }
+
     CkExit();
   }
 };
