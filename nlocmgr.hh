@@ -77,10 +77,21 @@ class manageable_base {
   inline std::size_t num_downstream_(void) const {
     return this->downstream_.size();
   }
+
+  virtual const CkArrayID &get_id_(void) const = 0;
+  virtual const CkArrayIndex &get_index_(void) const = 0;
 };
 
 template <typename T>
 class manageable : public T, public manageable_base {
+  inline virtual const CkArrayID &get_id_(void) const override {
+    return this->ckGetArrayID();
+  }
+
+  inline virtual const CkArrayIndex &get_index_(void) const override {
+    return this->ckGetArrayIndex();
+  }
+
  public:
   void ckPrintTree(void) {
     std::stringstream ss;
@@ -89,7 +100,7 @@ class manageable : public T, public manageable_base {
         (is_endpoint_) ? "endpoint"
                        : ((has_upstream_) ? util::idx2str(upstream_) : "unset");
 
-    ss << util::idx2str(this->ckGetArrayIndex()) << "@nd" << CkMyNode();
+    ss << util::idx2str(this->get_index_()) << "@nd" << CkMyNode();
     ss << "> has upstream " << upstream << " and downstream [";
     for (const auto &ds : downstream_) {
       ss << util::idx2str(ds) << ",";
@@ -103,7 +114,7 @@ class manageable : public T, public manageable_base {
 class location_manager : public CBase_location_manager, public array_listener {
  public:
   using index_type = CkArrayIndex;
-  using element_type = ArrayElement *;
+  using element_type = manageable_base *;
 
   bool set_endpoint_ = false;
 
@@ -139,6 +150,8 @@ class location_manager : public CBase_location_manager, public array_listener {
 
   virtual const PUP::able::PUP_ID &get_PUP_ID(void) const { NOT_IMPLEMENTED; }
 
+  void unreg_array(const CkArrayID &, const CkCallback &) { NOT_IMPLEMENTED; }
+
   void reg_array(const CkArrayID &aid, const CkCallback &cb) {
     CmiLock(lock_);
     if (arrays_.empty()) {
@@ -157,10 +170,8 @@ class location_manager : public CBase_location_manager, public array_listener {
     this->contribute(cb);
   }
 
-  void unreg_array(const CkArrayID &, const CkCallback &) { NOT_IMPLEMENTED; }
-
-  element_type lookup(const CkArrayID &aid, const index_type &idx) {
-    return this->lookup(aid, idx, true);
+  ArrayElement *lookup(const CkArrayID &aid, const index_type &idx) {
+    return dynamic_cast<ArrayElement *>(this->lookup(aid, idx, true));
   }
 
   void make_endpoint(const CkArrayID &aid, const CkArrayIndex &idx) {
@@ -187,8 +198,7 @@ class location_manager : public CBase_location_manager, public array_listener {
     CmiLock(lock_);
     auto target = this->reg_downstream(endpoint_(node), aid, idx);
     if (target != nullptr) {
-      thisProxy[node].receive_upstream(CkMyNode(), aid,
-                                       target->ckGetArrayIndex());
+      thisProxy[node].receive_upstream(CkMyNode(), aid, target->get_index_());
     }
     CmiUnlock(lock_);
   }
@@ -208,7 +218,7 @@ class location_manager : public CBase_location_manager, public array_listener {
 
   void make_endpoint(const element_type &elt) {
     CkAssertMsg(!this->set_endpoint_, "cannot register an endpoint twice");
-    dynamic_cast<manageable_base *>(elt)->is_endpoint_ = !this->set_endpoint_;
+    elt->is_endpoint_ = !this->set_endpoint_;
     this->set_endpoint_ = true;
   }
 
@@ -229,21 +239,19 @@ class location_manager : public CBase_location_manager, public array_listener {
   inline iter_type find_target(const bool &up) {
     using value_type = typename decltype(this->elements_)::value_type;
     if (up) {
-      return std::find_if(
-          std::begin(this->elements_), std::end(this->elements_),
-          [](const value_type &val) -> bool {
-            auto val_cast_ = dynamic_cast<manageable_base *>(val.second.first);
-            return !(val_cast_->has_upstream_ || val_cast_->is_endpoint_);
-          });
+      return std::find_if(std::begin(this->elements_),
+                          std::end(this->elements_),
+                          [](const value_type &val) -> bool {
+                            auto &val_ = val.second.first;
+                            return !(val_->has_upstream_ || val_->is_endpoint_);
+                          });
     } else {
       return std::min_element(
           std::begin(this->elements_), std::end(this->elements_),
           [](const value_type &lhs, const value_type &rhs) -> bool {
-            // TODO eliminate these casts(!!)
-            auto lhs_cast_ = dynamic_cast<manageable_base *>(lhs.second.first);
-            auto rhs_cast_ = dynamic_cast<manageable_base *>(rhs.second.first);
-            return (lhs_cast_->num_downstream_() <
-                    rhs_cast_->num_downstream_());
+            auto &lhs_ = lhs.second.first;
+            auto &rhs_ = rhs.second.first;
+            return (lhs_->num_downstream_() < rhs_->num_downstream_());
           });
     }
   }
@@ -255,7 +263,7 @@ class location_manager : public CBase_location_manager, public array_listener {
       NOT_IMPLEMENTED;
     } else {
       auto &target = search->second.first;
-      dynamic_cast<manageable_base *>(target)->set_upstream_(idx);
+      target->set_upstream_(idx);
     }
   }
 
@@ -275,45 +283,45 @@ class location_manager : public CBase_location_manager, public array_listener {
       return nullptr;
     } else {
       auto &target = this->find_target(false)->second.first;
-      dynamic_cast<manageable_base *>(target)->downstream_.emplace_back(idx);
+      target->downstream_.emplace_back(idx);
       return target;
     }
   }
 
   void associate(const element_type &elt) {
-    auto target = this->reg_downstream(endpoint_(elt), elt->ckGetArrayID(),
-                                       elt->ckGetArrayIndex());
+    auto target =
+        this->reg_downstream(endpoint_(elt), elt->get_id_(), elt->get_index_());
     if (target != nullptr) {
-      dynamic_cast<manageable_base *>(elt)
-          ->set_upstream_(target->ckGetArrayIndex());
+      elt->set_upstream_(target->get_index_());
     }
   }
 
   void disassociate(const element_type &elt) {
-    auto self = dynamic_cast<manageable_base *>(elt);
-    if (self->is_endpoint_) {
+    if (elt->is_endpoint_) {
       NOT_IMPLEMENTED;
     } else {
       NOT_IMPLEMENTED;
     }
   }
 
-  void reg_element(const element_type &elt, const bool &created) {
+  void reg_element(ArrayElement *elt, const bool &created) {
+    auto cast = dynamic_cast<element_type>(elt);
     const auto &idx = elt->ckGetArrayIndex();
     CmiLock(lock_);
-    if (created) associate(elt);
-    this->elements_[idx] = std::make_pair(elt, CkMyRank());
+    if (created) associate(cast);
+    this->elements_[idx] = std::make_pair(cast, CkMyRank());
     CmiUnlock(lock_);
   }
 
-  void unreg_element(const element_type &elt, const bool &died) {
+  void unreg_element(ArrayElement *elt, const bool &died) {
+    auto cast = dynamic_cast<element_type>(elt);
     const auto &idx = elt->ckGetArrayIndex();
     CmiLock(lock_);
     auto search = this->elements_.find(idx);
     if (search != std::end(this->elements_)) {
       this->elements_.erase(search);
     }
-    if (died) disassociate(elt);
+    if (died) disassociate(cast);
     CmiUnlock(lock_);
   }
 
