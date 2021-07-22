@@ -34,8 +34,12 @@ inline int num_leaves(const T &n) {
 
 class location_manager;
 
-class location_manager : public CBase_location_manager,
-                         public array_listener {
+class manageable {
+  friend class location_manager;
+  bool is_endpoint_ = false;
+};
+
+class location_manager : public CBase_location_manager, public array_listener {
  public:
   using index_type = CkArrayIndex;
   using element_type = ArrayElement *;
@@ -45,6 +49,8 @@ class location_manager : public CBase_location_manager,
 
   std::vector<update_type> upstream_;
   std::vector<update_type> downstream_;
+
+  bool set_endpoint_ = false;
 
  protected:
   CmiNodeLock lock_;
@@ -77,26 +83,59 @@ class location_manager : public CBase_location_manager,
     }
     CmiUnlock(lock_);
 
-    // TODO fix this
+    // TODO this won't work if there's any simultaneous activity
     for (auto i = 0; i < CkMyNodeSize(); i += 1) {
+      // TODO copy existing members into our table!
       spin_to_win(aid, i)->addListener(this);
     }
-
-    // TODO copy known to this chare
 
     this->contribute(cb);
   }
 
-  void unreg_array(const CkArrayID&, const CkCallback&) { NOT_IMPLEMENTED; }
+  void unreg_array(const CkArrayID &, const CkCallback &) { NOT_IMPLEMENTED; }
 
   element_type lookup(const CkArrayID &aid, const index_type &idx) {
+    return this->lookup(aid, idx, true);
+  }
+
+  void make_endpoint(const CkArrayID &aid, const CkArrayIndex &idx) {
     CmiLock(lock_);
+    auto *elt = this->lookup(aid, idx, false);
+    if (elt) {
+      this->make_endpoint(elt);
+    } else {
+      NOT_IMPLEMENTED;
+    }
+    CmiUnlock(lock_);
+  }
+
+  void receive_upstream(const int &node, const CkArrayID &aid,
+                        const index_type &idx) { NOT_IMPLEMENTED; }
+
+  void receive_downstream(const int &node, const CkArrayID &aid,
+                          const index_type &idx) {
+    CmiLock(lock_);
+    if (this->elements_.empty()) {
+      if (!this->send_upstream(aid, idx)) {
+        thisProxy[node].make_endpoint(aid, idx);
+        this->set_endpoint_ = true;
+      }
+    } else {
+      NOT_IMPLEMENTED;
+    }
+    CmiUnlock(lock_);
+  }
+
+ protected:
+  element_type lookup(const CkArrayID &aid, const index_type &idx,
+                      const bool &lock) {
+    if (lock) CmiLock(lock_);
     auto search = this->elements_.find(idx);
     int rank = -1;
     if (search != std::end(this->elements_)) {
       rank = search->second;
     }
-    CmiUnlock(lock_);
+    if (lock) CmiUnlock(lock_);
     if (rank >= 0) {
       return spin_to_win(aid, rank)->lookup(idx);
     } else {
@@ -104,35 +143,31 @@ class location_manager : public CBase_location_manager,
     }
   }
 
-  void receive_upstream(update_type&& update) {
-    CmiLock(lock_);
-    this->upstream_.emplace_back(std::move(update));
-    CmiUnlock(lock_);
+  void make_endpoint(const element_type &elt) {
+    CkAssertMsg(!this->set_endpoint_, "cannot register an endpoint twice");
+    dynamic_cast<manageable *>(elt)->is_endpoint_ = !this->set_endpoint_;
+    this->set_endpoint_ = true;
   }
 
-  void receive_downstream(update_type&& update) {
-    CmiLock(lock_);
-    this->downstream_.emplace_back(std::move(update));
-    CmiUnlock(lock_);
-  }
-
-  static void send_upstream(const CkArrayID& aid, const index_type& idx) {
+  bool send_upstream(const CkArrayID &aid, const index_type &idx) {
     auto mine = CkMyNode();
     auto parent = binary_tree::parent(mine);
+
     if (parent >= 0) {
-      auto update = std::forward_as_tuple(mine, aid, idx);
-      // TODO send
+      thisProxy[parent].receive_downstream(mine, aid, idx);
+      return true;
+    } else {
+      return false;
     }
   }
 
- protected:
   void first_element(const element_type &elt) {
-    if (this->upstream_.empty()) {
-      send_upstream(elt->ckGetArrayID(), elt->ckGetArrayIndex());
+    auto sent =
+        this->send_upstream(elt->ckGetArrayID(), elt->ckGetArrayIndex());
+    if (!sent) {
+      this->make_endpoint(elt);
     }
   }
-
-  void last_element(const element_type &elt) {}
 
   void reg_element(const element_type &elt) {
     const auto &idx = elt->ckGetArrayIndex();
@@ -152,15 +187,13 @@ class location_manager : public CBase_location_manager,
     if (search != std::end(this->elements_)) {
       this->elements_.erase(search);
     }
-    auto last = this->elements_.empty();
-    if (last) {
-      this->last_element(elt);
+    if (dynamic_cast<manageable *>(elt)->is_endpoint_) {
+      NOT_IMPLEMENTED;
     }
     CmiUnlock(lock_);
   }
 
  public:
-
   virtual void ckRegister(CkArray *, int) override {}
 
   virtual bool ckElementCreated(ArrayElement *elt) override {
@@ -183,9 +216,7 @@ class location_manager : public CBase_location_manager,
     array_listener::ckElementLeaving(elt);
   }
 
-  virtual void pup(PUP::er& p) override {
-    CBase_location_manager::pup(p);
-  }
+  virtual void pup(PUP::er &p) override { CBase_location_manager::pup(p); }
 };
 
 #endif

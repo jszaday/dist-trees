@@ -1,12 +1,11 @@
-#include "nlocmgr.h"
+#include "nlocmgr.hh"
 
 #include <memory>
 #include <vector>
 
 constexpr int kMultiplier = 2;
 
-
-class Test : public CBase_Test {
+class Test : public CBase_Test, public manageable {
  public:
   Test(void) = default;
 
