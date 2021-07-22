@@ -4,6 +4,9 @@
 #include <hypercomm/utilities.hpp>
 #include <hypercomm/core/math.hpp>
 #include <hypercomm/core/locality.hpp>
+#include <hypercomm/core/typed_value.hpp>
+#include <hypercomm/core/inter_callback.hpp>
+#include <hypercomm/core/persistent_port.hpp>
 #include <hypercomm/sections/identity.hpp>
 
 #include "hello.decl.h"
@@ -85,25 +88,28 @@ class manageable : public T, public manageable_base {
 
 template<typename Index>
 class managed_identity: public identity<Index> {
-  CProxy_location_manager mgr_;
   const manageable_base* inst_;
+ public:
+  managed_identity(const manageable_base *inst)
+  : inst_(inst) {}
 
-  managed_identity(const CProxy_location_manager &mgr, const manageable_base *inst)
-  : mgr_(mgr), inst_(inst) {}
+  virtual const Index& mine(void) const override {
+    return reinterpret_index<Index>(inst_->get_index_());
+  }
 
-  virtual std::vector<Index> upstream(void) const {
+  virtual std::vector<Index> downstream(void) const {
     CkAssert(inst_->known_upstream_());
     if (inst_->is_endpoint_) {
       return {};
     } else {
-      return { conv2idx<Index>(inst_->upstream_) };
+      return { reinterpret_index<Index>(inst_->upstream_) };
     }
   }
 
-  virtual std::vector<Index> downstream(void) const {
+  virtual std::vector<Index> upstream(void) const {
     std::vector<Index> ds(inst_->num_downstream_());
     std::transform(std::begin(inst_->downstream_), std::end(inst_->downstream_), std::begin(ds),
-                  [](const CkArrayIndex& val) { return conv2idx<Index>(val); });
+                  [](const CkArrayIndex& val) { return reinterpret_index<Index>(val); });
     return ds;
   }
 };

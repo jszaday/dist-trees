@@ -2,7 +2,10 @@ mainmodule hello {
   mainchare Main {
     entry [nokeep] Main(CkArgMsg*);
     entry [threaded] void run(void);
+    entry void done(CkMessage*);
   };
+
+  readonly CProxy_Main mainProxy;
 
   nodegroup location_manager {
     entry location_manager(void);
@@ -16,9 +19,12 @@ mainmodule hello {
     entry void make_endpoint(const CkArrayID&, const CkArrayIndex&);
   };
 
-  array[1D] Test {
+  extern module locality;
+
+  array [1D] Test : locality_base_ {
     entry Test(void);
-    entry [inline] void ring(const int&);
-    entry [createhome] void callRing(void);
+    entry void make_contribution();
   };
+
+  initproc void enroll_polymorphs(void);
 }
