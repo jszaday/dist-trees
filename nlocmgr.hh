@@ -188,13 +188,21 @@ class location_manager : public CBase_location_manager, public array_listener {
 
   void receive_upstream(const int &node, const CkArrayID &aid,
                         const index_type &idx) {
+#if CMK_DEBUG
+    CkPrintf("nd%d> received upstream from %d, idx=%s.\n", CkMyNode(), node,
+             util::idx2str(idx).c_str());
+#endif
     CmiLock(lock_);
-    this->reg_upstream(aid, idx);
+    this->reg_upstream(endpoint_(node), aid, idx);
     CmiUnlock(lock_);
   }
 
   void receive_downstream(const int &node, const CkArrayID &aid,
                           const index_type &idx) {
+#if CMK_DEBUG
+    CkPrintf("nd%d> received downstream from %d, idx=%s.\n", CkMyNode(), node,
+             util::idx2str(idx).c_str());
+#endif
     CmiLock(lock_);
     auto target = this->reg_downstream(endpoint_(node), aid, idx);
     if (target != nullptr) {
@@ -222,16 +230,26 @@ class location_manager : public CBase_location_manager, public array_listener {
     this->set_endpoint_ = true;
   }
 
-  bool send_upstream(const CkArrayID &aid, const index_type &idx) {
+  void send_upstream(const endpoint_ &ep, const CkArrayID &aid,
+                     const index_type &idx) {
     auto mine = CkMyNode();
     auto parent = binary_tree::parent(mine);
 
     if (parent >= 0) {
-      thisProxy[parent].receive_downstream(mine, aid, idx);
-      return true;
+      auto src = ep.elt_ != nullptr ? mine : ep.node_;
+      thisProxy[parent].receive_downstream(src, aid, idx);
+    } else if (ep.elt_ != nullptr) {
+      this->make_endpoint(ep.elt_);
     } else {
-      return false;
+      thisProxy[ep.node_].make_endpoint(aid, idx);
+      this->set_endpoint_ = true;
     }
+  }
+
+  void send_downstream(const endpoint_ &ep, const CkArrayID &aid,
+                       const index_type &idx) {
+    // unclear when this would occur, initial sync'ing should have destinations
+    NOT_IMPLEMENTED;
   }
 
   using iter_type = typename decltype(elements_)::iterator;
@@ -256,30 +274,23 @@ class location_manager : public CBase_location_manager, public array_listener {
     }
   }
 
-  void reg_upstream(const CkArrayID &aid, const index_type &idx) {
+  element_type reg_upstream(const endpoint_ &ep, const CkArrayID &aid,
+                            const index_type &idx) {
     auto search = this->find_target(true);
     if (search == std::end(this->elements_)) {
-      // forward to children?
-      NOT_IMPLEMENTED;
+      this->send_downstream(ep, aid, idx);
+      return nullptr;
     } else {
       auto &target = search->second.first;
       target->set_upstream_(idx);
+      return target;
     }
   }
 
   element_type reg_downstream(const endpoint_ &ep, const CkArrayID &aid,
                               const index_type &idx) {
     if (this->elements_.empty()) {
-      // TODO put this logic elsewhere?
-      auto sent = this->send_upstream(aid, idx);
-      if (!sent) {
-        if (ep.elt_ != nullptr) {
-          this->make_endpoint(ep.elt_);
-        } else {
-          thisProxy[ep.node_].make_endpoint(aid, idx);
-          this->set_endpoint_ = true;
-        }
-      }
+      this->send_upstream(ep, aid, idx);
       return nullptr;
     } else {
       auto &target = this->find_target(false)->second.first;

@@ -21,7 +21,7 @@ class Main : public CBase_Main {
   CProxy_location_manager locProxy;
   int n;
  public:
-  Main(CkArgMsg* msg) : n(CkNumPes()) {
+  Main(CkArgMsg* msg) : n(kMultiplier * CkNumPes()) {
     testProxy = CProxy_Test::ckNew();
     locProxy = CProxy_location_manager::ckNew();
     locProxy.reg_array(testProxy, CkCallback(CkIndex_Main::run(), thisProxy));
