@@ -16,7 +16,7 @@ class location_manager;
 class location_manager : public CBase_location_manager, public array_listener {
  public:
   using index_type = CkArrayIndex;
-  using element_type = manageable_base *;
+  using element_type = manageable_base_ *;
 
   bool set_endpoint_ = false;
 
@@ -128,8 +128,8 @@ class location_manager : public CBase_location_manager, public array_listener {
 
   void make_endpoint(const element_type &elt) {
     CkAssertMsg(!this->set_endpoint_, "cannot register an endpoint twice");
-    elt->is_endpoint_ = !this->set_endpoint_;
     this->set_endpoint_ = true;
+    elt->set_endpoint_();
   }
 
   void send_upstream(const endpoint_ &ep, const CkArrayID &aid,
@@ -163,7 +163,7 @@ class location_manager : public CBase_location_manager, public array_listener {
                           std::end(this->elements_),
                           [](const value_type &val) -> bool {
                             auto &val_ = val.second.first;
-                            return !val_->known_upstream_();
+                            return !(val_->association_ && val_->association_->valid_upstream_);
                           });
     } else {
       return std::min_element(
@@ -184,7 +184,7 @@ class location_manager : public CBase_location_manager, public array_listener {
       return nullptr;
     } else {
       auto &target = search->second.first;
-      target->set_upstream_(idx);
+      target->put_upstream_(idx);
       return target;
     }
   }
@@ -196,7 +196,7 @@ class location_manager : public CBase_location_manager, public array_listener {
       return nullptr;
     } else {
       auto &target = this->find_target(false)->second.first;
-      target->downstream_.emplace_back(idx);
+      target->put_downstream_(idx);
       return target;
     }
   }
@@ -205,12 +205,12 @@ class location_manager : public CBase_location_manager, public array_listener {
     auto target =
         this->reg_downstream(endpoint_(elt), elt->get_id_(), elt->get_index_());
     if (target != nullptr) {
-      elt->set_upstream_(target->get_index_());
+      elt->put_upstream_(target->get_index_());
     }
   }
 
   void disassociate(const element_type &elt) {
-    if (elt->is_endpoint_) {
+    if (elt->is_endpoint_()) {
       NOT_IMPLEMENTED;
     } else {
       NOT_IMPLEMENTED;

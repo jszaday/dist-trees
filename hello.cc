@@ -38,17 +38,15 @@ class adder : public core::combiner {
 };
 
 class Test : public manageable<vil<CBase_Test, int>> {
-  identity_ptr ident_;
-
  public:
-  Test(void) { ident_ = std::make_shared<managed_identity<int>>(this); }
+  Test(void) = default;
 
   void make_contribution(void) {
     auto val = std::make_shared<typed_value<int>>(this->__index__());
     auto fn = std::make_shared<adder<int>>();
     auto cb = CkCallback(CkIndex_Main::done(nullptr), mainProxy);
     auto icb = std::make_shared<inter_callback>(cb);
-    this->local_contribution(this->ident_, std::move(val), fn, icb);
+    this->local_contribution(this->ckAllIdentity(), std::move(val), fn, icb);
   }
 };
 

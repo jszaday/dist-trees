@@ -12,11 +12,10 @@ using array_index_hasher = IndexHasher;
 template <typename T>
 class manageable;
 
-class manageable_base;
+class manageable_base_;
 
-class association_ {
-  friend class manageable_base_;
-
+struct association_ {
+  bool valid_upstream_ = false;
   std::vector<CkArrayIndex> upstream_;
   std::vector<CkArrayIndex> downstream_;
 };
