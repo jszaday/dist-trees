@@ -1,118 +1,17 @@
 #ifndef __NODE_LEVEL_LOC_MGR_HH__
 #define __NODE_LEVEL_LOC_MGR_HH__
 
-#include <hypercomm/utilities.hpp>
+#include "manageable.hh"
+
 #include <hypercomm/core/math.hpp>
 #include <hypercomm/core/locality.hpp>
-#include <hypercomm/core/typed_value.hpp>
-#include <hypercomm/core/inter_callback.hpp>
-#include <hypercomm/core/persistent_port.hpp>
-#include <hypercomm/sections/identity.hpp>
 
+// TODO move location_manager into its own module
 #include "hello.decl.h"
 
 #define NOT_IMPLEMENTED CkAbort("not yet implemented")
 
-using namespace hypercomm;
-using index_hasher = IndexHasher;
-using array_id_hasher = ArrayIDHasher;
-using array_listener = CkArrayListener;
-
 class location_manager;
-
-template <typename T>
-class manageable;
-
-template<typename Index>
-class managed_identity;
-
-class manageable_base {
-  friend class location_manager;
-
-  template <typename T>
-  friend class manageable;
-
-  template <typename T>
-  friend class managed_identity;
-
-  bool is_endpoint_ = false;
-  bool has_upstream_ = false;
-  CkArrayIndex upstream_;  // NOTE should be std::option
-  std::vector<CkArrayIndex> downstream_;
-
-  inline void set_upstream_(const CkArrayIndex &idx) {
-    this->upstream_ = idx;
-    this->has_upstream_ = true;
-  }
-
-  inline std::size_t num_downstream_(void) const {
-    return this->downstream_.size();
-  }
-
-  inline bool known_upstream_(void) const {
-    return this->has_upstream_ || this->is_endpoint_;
-  }
-
-  virtual const CkArrayID &get_id_(void) const = 0;
-  virtual const CkArrayIndex &get_index_(void) const = 0;
-};
-
-template <typename T>
-class manageable : public T, public manageable_base {
-  inline virtual const CkArrayID &get_id_(void) const override {
-    return this->ckGetArrayID();
-  }
-
-  inline virtual const CkArrayIndex &get_index_(void) const override {
-    return this->ckGetArrayIndex();
-  }
-
- public:
-  void ckPrintTree(void) {
-    std::stringstream ss;
-
-    auto upstream =
-        (is_endpoint_) ? "endpoint"
-                       : ((has_upstream_) ? utilities::idx2str(upstream_) : "unset");
-
-    ss << utilities::idx2str(this->get_index_()) << "@nd" << CkMyNode();
-    ss << "> has upstream " << upstream << " and downstream [";
-    for (const auto &ds : downstream_) {
-      ss << utilities::idx2str(ds) << ",";
-    }
-    ss << "]";
-
-    CkPrintf("%s\n", ss.str().c_str());
-  }
-};
-
-template<typename Index>
-class managed_identity: public identity<Index> {
-  const manageable_base* inst_;
- public:
-  managed_identity(const manageable_base *inst)
-  : inst_(inst) {}
-
-  virtual const Index& mine(void) const override {
-    return reinterpret_index<Index>(inst_->get_index_());
-  }
-
-  virtual std::vector<Index> downstream(void) const {
-    CkAssert(inst_->known_upstream_());
-    if (inst_->is_endpoint_) {
-      return {};
-    } else {
-      return { reinterpret_index<Index>(inst_->upstream_) };
-    }
-  }
-
-  virtual std::vector<Index> upstream(void) const {
-    std::vector<Index> ds(inst_->num_downstream_());
-    std::transform(std::begin(inst_->downstream_), std::end(inst_->downstream_), std::begin(ds),
-                  [](const CkArrayIndex& val) { return reinterpret_index<Index>(val); });
-    return ds;
-  }
-};
 
 class location_manager : public CBase_location_manager, public array_listener {
  public:
@@ -126,7 +25,7 @@ class location_manager : public CBase_location_manager, public array_listener {
   std::vector<CkArrayID> arrays_;
 
   using record_type = std::pair<element_type, int>;
-  std::unordered_map<index_type, record_type, index_hasher> elements_;
+  std::unordered_map<index_type, record_type, array_index_hasher> elements_;
 
   CkArray *spin_to_win(const CkArrayID &aid, const int &rank) {
     if (rank == CkMyRank()) {

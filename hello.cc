@@ -3,6 +3,9 @@
 #include <memory>
 #include <vector>
 
+#include <hypercomm/core/typed_value.hpp>
+#include <hypercomm/core/inter_callback.hpp>
+
 constexpr int kMultiplier = 2;
 
 /* readonly */ CProxy_Main mainProxy;
@@ -11,10 +14,7 @@ void enroll_polymorphs(void) {
   hypercomm::init_polymorph_registry();
 
   if (CkMyRank() == 0) {
-    hypercomm::enroll<persistent_port>();
     hypercomm::enroll<reduction_port<int>>();
-    hypercomm::enroll<broadcaster<int>>();
-    hypercomm::enroll<generic_section<int>>();
   }
 }
 
