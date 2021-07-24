@@ -3,6 +3,7 @@
 
 #include "manageable.hh"
 
+#include <completion.h>
 #include <hypercomm/core/math.hpp>
 #include <hypercomm/core/locality.hpp>
 
@@ -17,15 +18,35 @@ class location_manager : public CBase_location_manager, public array_listener {
  public:
   using index_type = CkArrayIndex;
   using element_type = manageable_base_ *;
+  using detector_type = CProxy_CompletionDetector;
 
   bool set_endpoint_ = false;
 
  protected:
   CmiNodeLock lock_;
-  std::vector<CkArrayID> arrays_;
 
   using record_type = std::pair<element_type, int>;
+
+  std::unordered_map<CkArrayID, bool, array_id_hasher> insertion_statuses_;
+  std::unordered_map<CkArrayID, detector_type, array_id_hasher> arrays_;
   std::unordered_map<index_type, record_type, array_index_hasher> elements_;
+
+  inline CompletionDetector *detector_for(const CkArrayID &aid) const {
+#if CMK_ERROR_CHECKING
+    auto search = this->arrays_.find(aid);
+    if (search == std::end(this->arrays_)) {
+      CkAbort("missing completion detector!");
+    }
+    const auto &proxy = search->second;
+#else
+    const auto &proxy = this->arrays_[aid];
+#endif
+    CompletionDetector *inst = nullptr;
+    while (nullptr == (inst = proxy.ckLocalBranch())) {
+      CsdScheduler(0);
+    }
+    return inst;
+  }
 
   CkArray *spin_to_win(const CkArrayID &aid, const int &rank) {
     if (rank == CkMyRank()) {
@@ -54,12 +75,18 @@ class location_manager : public CBase_location_manager, public array_listener {
 
   void unreg_array(const CkArrayID &, const CkCallback &) { NOT_IMPLEMENTED; }
 
-  void reg_array(const CkArrayID &aid, const CkCallback &cb) {
+  void reg_array(const detector_type &detector, const CkArrayID &aid,
+                 const CkCallback &cb) {
     CmiLock(lock_);
-    if (arrays_.empty()) {
-      arrays_.emplace_back(aid);
-    } else if (!(aid == arrays_.front())) {
-      NOT_IMPLEMENTED;
+    auto search = this->arrays_.find(aid);
+    if (search == std::end(this->arrays_)) {
+      if (!this->arrays_.empty()) {
+        NOT_IMPLEMENTED;
+      }
+
+      this->arrays_[aid] = detector;
+    } else {
+      CkAbort("array registered twice!");
     }
     CmiUnlock(lock_);
 
@@ -76,11 +103,26 @@ class location_manager : public CBase_location_manager, public array_listener {
     return dynamic_cast<ArrayElement *>(this->lookup(aid, idx, true));
   }
 
+  void begin_inserting(const CkArrayID &aid, const CkCallback &start,
+                       const CkCallback &finish) {
+    this->insertion_statuses_[aid] = true;
+    if (thisIndex == 0) {
+      this->arrays_[aid].start_detection(CkNumNodes(), start, CkCallback(),
+                                         finish, 0);
+    }
+  }
+
+  void done_inserting(const CkArrayID &aid) {
+    this->insertion_statuses_[aid] = false;
+    this->detector_for(aid)->done();
+  }
+
   void make_endpoint(const CkArrayID &aid, const CkArrayIndex &idx) {
     CmiLock(lock_);
     auto *elt = this->lookup(aid, idx, false);
     if (elt) {
       this->make_endpoint(elt);
+      this->detector_for(aid)->consume();
     } else {
       // element has migrated
       NOT_IMPLEMENTED;
@@ -96,6 +138,7 @@ class location_manager : public CBase_location_manager, public array_listener {
 #endif
     CmiLock(lock_);
     this->reg_upstream(endpoint_(node), aid, idx);
+    this->detector_for(aid)->consume();
     CmiUnlock(lock_);
   }
 
@@ -108,7 +151,11 @@ class location_manager : public CBase_location_manager, public array_listener {
     CmiLock(lock_);
     auto target = this->reg_downstream(endpoint_(node), aid, idx);
     if (target != nullptr) {
+      // we implicitly produce (1) at this point
       thisProxy[node].receive_upstream(CkMyNode(), aid, target->get_index_());
+    } else {
+      // so we only consume (1) in the else branch
+      this->detector_for(aid)->consume();
     }
     CmiUnlock(lock_);
   }
@@ -140,11 +187,13 @@ class location_manager : public CBase_location_manager, public array_listener {
     if (parent >= 0) {
       auto src = ep.elt_ != nullptr ? mine : ep.node_;
       thisProxy[parent].receive_downstream(src, aid, idx);
+      this->detector_for(aid)->produce();
     } else if (ep.elt_ != nullptr) {
       this->make_endpoint(ep.elt_);
     } else {
       thisProxy[ep.node_].make_endpoint(aid, idx);
       this->set_endpoint_ = true;
+      this->detector_for(aid)->produce();
     }
   }
 
@@ -159,12 +208,12 @@ class location_manager : public CBase_location_manager, public array_listener {
   inline iter_type find_target(const bool &up) {
     using value_type = typename decltype(this->elements_)::value_type;
     if (up) {
-      return std::find_if(std::begin(this->elements_),
-                          std::end(this->elements_),
-                          [](const value_type &val) -> bool {
-                            auto &val_ = val.second.first;
-                            return !(val_->association_ && val_->association_->valid_upstream_);
-                          });
+      return std::find_if(
+          std::begin(this->elements_), std::end(this->elements_),
+          [](const value_type &val) -> bool {
+            auto &val_ = val.second.first;
+            return !(val_->association_ && val_->association_->valid_upstream_);
+          });
     } else {
       return std::min_element(
           std::begin(this->elements_), std::end(this->elements_),

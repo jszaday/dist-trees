@@ -7,19 +7,23 @@ mainmodule hello {
 
   readonly CProxy_Main mainProxy;
 
-  nodegroup location_manager {
-    entry location_manager(void);
+  extern module locality;
+  extern module completion;
 
-    entry void reg_array(const CkArrayID&, const CkCallback&);
+  nodegroup location_manager {
+    entry location_manager();
+
+    entry void reg_array(const CProxy_CompletionDetector&, const CkArrayID&, const CkCallback&);
     entry void unreg_array(const CkArrayID&, const CkCallback&);
 
     entry void receive_upstream(const int&, const CkArrayID&, const CkArrayIndex&);
     entry void receive_downstream(const int&, const CkArrayID&, const CkArrayIndex&);
 
     entry void make_endpoint(const CkArrayID&, const CkArrayIndex&);
-  };
 
-  extern module locality;
+    entry void begin_inserting(const CkArrayID &aid, const CkCallback &start, const CkCallback &finish);
+    entry void done_inserting(const CkArrayID&);
+  };
 
   array [1D] Test : locality_base_ {
     entry Test(void);

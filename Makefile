@@ -1,4 +1,4 @@
-OPTS:=$(OPTS) -g3 -lSegFault
+OPTS:=$(OPTS) -g3 -lSegFault -module completion
 CHARMC=$(CHARM_HOME)/bin/charmc $(OPTS)
 
 INCLUDES = -I$(HYPERCOMM_HOME)/include -I$(HYPERCOMM_HOME)/include/hypercomm/core

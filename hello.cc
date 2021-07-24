@@ -60,17 +60,23 @@ class Main : public CBase_Main {
     mainProxy = thisProxy;
     testProxy = CProxy_Test::ckNew();
     locProxy = CProxy_location_manager::ckNew();
-    locProxy.reg_array(testProxy, CkCallback(CkIndex_Main::run(), thisProxy));
+    locProxy.reg_array(CProxy_CompletionDetector::ckNew(), testProxy,
+                       CkCallback(CkIndex_Main::run(), thisProxy));
   }
 
   void run(void) {
+    // initiate a phase of static insertion, suspending the thread
+    // and resuming when we can begin. insertions are allowed when
+    // all nodes have called "done_inserting"
+    locProxy.begin_inserting(
+        testProxy, CkCallbackResumeThread(),
+        CkCallback(CkIndex_Test::make_contribution(), testProxy));
+
     for (auto i = 0; i < n; i += 1) {
       testProxy[i].insert();
     }
 
-    CkWaitQD();
-
-    testProxy.make_contribution();
+    locProxy.done_inserting(testProxy);
   }
 
   inline int expected(void) const {

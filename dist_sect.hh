@@ -15,9 +15,13 @@ class manageable;
 class manageable_base_;
 
 struct association_ {
-  bool valid_upstream_ = false;
   std::vector<CkArrayIndex> upstream_;
   std::vector<CkArrayIndex> downstream_;
+  bool valid_upstream_ = false;
+  CmiNodeLock lock_;
+
+  association_(void): lock_(CmiCreateLock()) {}
+  association_(const association_&) = delete;
 };
 
 #endif
