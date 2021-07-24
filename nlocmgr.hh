@@ -33,10 +33,10 @@ class location_manager : public CBase_location_manager, public array_listener {
 
   inline CompletionDetector *detector_for(const CkArrayID &aid) const {
 #if CMK_ERROR_CHECKING
+    CkAssertMsg(this->is_inserting(aid), "missing call to begin_inserting");
     auto search = this->arrays_.find(aid);
-    if (search == std::end(this->arrays_)) {
-      CkAbort("missing completion detector!");
-    }
+    CkAssertMsg(search != std::end(this->arrays_),
+                "missing completion detector");
     const auto &proxy = search->second;
 #else
     const auto &proxy = this->arrays_[aid];
@@ -71,16 +71,35 @@ class location_manager : public CBase_location_manager, public array_listener {
   struct contribute_helper_ {
     CProxy_location_manager manager_;
     CkCallback cb_;
+    CkArrayID aid_;
 
-    static void action(contribute_helper_ *self, void *msg) {
+    static void start_action_(contribute_helper_ *self, void *msg) {
       self->manager_.ckLocalBranch()->contribute(self->cb_);
       delete self;
       CkFreeMsg(msg);
     }
 
-    static contribute_helper_ *instantiate(location_manager *manager,
-                                           const CkCallback &cb) {
-      return new contribute_helper_{.manager_ = manager->thisProxy, .cb_ = cb};
+    static void finish_action_(contribute_helper_ *self, void *msg) {
+      self->manager_.insertion_complete_(self->aid_, self->cb_);
+      delete self;
+      CkFreeMsg(msg);
+    }
+
+    static CkCallback start_action(location_manager *manager,
+                                   const CkArrayID &aid, const CkCallback &cb) {
+      auto instance = new contribute_helper_{
+          .manager_ = manager->thisProxy, .cb_ = cb, .aid_ = aid};
+      return CkCallback((CkCallbackFn)&contribute_helper_::start_action_,
+                        instance);
+    }
+
+    static CkCallback finish_action(location_manager *manager,
+                                    const CkArrayID &aid,
+                                    const CkCallback &cb) {
+      auto instance = new contribute_helper_{
+          .manager_ = manager->thisProxy, .cb_ = cb, .aid_ = aid};
+      return CkCallback((CkCallbackFn)&contribute_helper_::finish_action_,
+                        instance);
     }
   };
 
@@ -123,18 +142,20 @@ class location_manager : public CBase_location_manager, public array_listener {
                        const CkCallback &finish) {
     this->insertion_statuses_[aid] = true;
     if (thisIndex == 0) {
-      auto *arg = contribute_helper_::instantiate(this, start);
-      auto cb = CkCallback((CkCallbackFn)&contribute_helper_::action, arg);
-      this->arrays_[aid].start_detection(CkNumNodes(), cb, CkCallback(), finish,
+      auto begin = contribute_helper_::start_action(this, aid, start);
+      auto end = contribute_helper_::finish_action(this, aid, finish);
+      this->arrays_[aid].start_detection(CkNumNodes(), begin, CkCallback(), end,
                                          0);
     } else {
       this->contribute(start);
     }
   }
 
-  void done_inserting(const CkArrayID &aid) {
+  void done_inserting(const CkArrayID &aid) { this->detector_for(aid)->done(); }
+
+  void insertion_complete_(const CkArrayID &aid, const CkCallback &cb) {
     this->insertion_statuses_[aid] = false;
-    this->detector_for(aid)->done();
+    this->contribute(cb);
   }
 
   void make_endpoint(const CkArrayID &aid, const CkArrayIndex &idx) {

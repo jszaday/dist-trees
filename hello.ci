@@ -23,6 +23,8 @@ mainmodule hello {
 
     entry void begin_inserting(const CkArrayID &aid, const CkCallback &start, const CkCallback &finish);
     entry void done_inserting(const CkArrayID&);
+
+    entry void insertion_complete_(const CkArrayID&, const CkCallback&);
   };
 
   array [1D] Test : locality_base_ {
