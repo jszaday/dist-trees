@@ -60,6 +60,9 @@ class Main : public CBase_Main {
     mainProxy = thisProxy;
     testProxy = CProxy_Test::ckNew();
     locProxy = CProxy_location_manager::ckNew();
+
+    // each array requires its own completion detector for static
+    // insertions, ensuring the spanning tree is ready before completion
     locProxy.reg_array(CProxy_CompletionDetector::ckNew(), testProxy,
                        CkCallback(CkIndex_Main::run(), thisProxy));
   }

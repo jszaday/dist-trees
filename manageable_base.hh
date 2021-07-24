@@ -18,7 +18,7 @@ class manageable_base_ {
 
   association_ptr_ association_;
 
-  manageable_base_(void) : association_(new ::association_) {}
+  manageable_base_(void) : association_(nullptr) {}
   manageable_base_(association_ptr_&& association)
       : association_(std::forward<association_ptr_>(association)) {}
 

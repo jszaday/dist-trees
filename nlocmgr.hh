@@ -68,6 +68,22 @@ class location_manager : public CBase_location_manager, public array_listener {
     endpoint_(const int &node) : elt_(nullptr), node_(node) {}
   };
 
+  struct contribute_helper_ {
+    CProxy_location_manager manager_;
+    CkCallback cb_;
+
+    static void action(contribute_helper_ *self, void *msg) {
+      self->manager_.ckLocalBranch()->contribute(self->cb_);
+      delete self;
+      CkFreeMsg(msg);
+    }
+
+    static contribute_helper_ *instantiate(location_manager *manager,
+                                           const CkCallback &cb) {
+      return new contribute_helper_{.manager_ = manager->thisProxy, .cb_ = cb};
+    }
+  };
+
  public:
   location_manager(void) : CkArrayListener(0), lock_(CmiCreateLock()) {}
 
@@ -107,8 +123,12 @@ class location_manager : public CBase_location_manager, public array_listener {
                        const CkCallback &finish) {
     this->insertion_statuses_[aid] = true;
     if (thisIndex == 0) {
-      this->arrays_[aid].start_detection(CkNumNodes(), start, CkCallback(),
-                                         finish, 0);
+      auto *arg = contribute_helper_::instantiate(this, start);
+      auto cb = CkCallback((CkCallbackFn)&contribute_helper_::action, arg);
+      this->arrays_[aid].start_detection(CkNumNodes(), cb, CkCallback(), finish,
+                                         0);
+    } else {
+      this->contribute(start);
     }
   }
 
@@ -158,6 +178,12 @@ class location_manager : public CBase_location_manager, public array_listener {
       this->detector_for(aid)->consume();
     }
     CmiUnlock(lock_);
+  }
+
+  inline bool is_inserting(const CkArrayID &aid) const {
+    auto search = this->insertion_statuses_.find(aid);
+    return (search == std::end(this->insertion_statuses_)) ? false
+                                                           : search->second;
   }
 
  protected:
@@ -250,11 +276,24 @@ class location_manager : public CBase_location_manager, public array_listener {
     }
   }
 
+  void try_reassociate(const element_type &elt) { NOT_IMPLEMENTED; }
+
   void associate(const element_type &elt) {
-    auto target =
-        this->reg_downstream(endpoint_(elt), elt->get_id_(), elt->get_index_());
-    if (target != nullptr) {
-      elt->put_upstream_(target->get_index_());
+    auto &aid = elt->get_id_();
+    auto &assoc = elt->association_;
+    // if we are (statically) inserting an unassociated element
+    if (this->is_inserting(aid) && !assoc) {
+      // create a new association for the element
+      assoc.reset(new ::association_);
+      // and set its up/downstream
+      auto target = this->reg_downstream(endpoint_(elt), elt->get_id_(),
+                                         elt->get_index_());
+      if (target != nullptr) {
+        elt->put_upstream_(target->get_index_());
+      }
+    } else {
+      CkAssertMsg(assoc, "dynamic insertions must be associated");
+      this->try_reassociate(elt);
     }
   }
 
