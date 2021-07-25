@@ -1,15 +1,17 @@
-#include "nlocmgr.hh"
-
 #include <memory>
 #include <vector>
 
+#include <hypercomm/core/locality.hpp>
 #include <hypercomm/core/typed_value.hpp>
 #include <hypercomm/core/inter_callback.hpp>
+
+#include "tree_builder.hh"
+#include "hello.decl.h"
 
 constexpr int kMultiplier = 2;
 
 /* readonly */ CProxy_Main mainProxy;
-/* readonly */ CProxy_location_manager locProxy;
+/* readonly */ CProxy_tree_builder locProxy;
 
 void enroll_polymorphs(void) {
   hypercomm::init_polymorph_registry();
@@ -73,7 +75,7 @@ class Main : public CBase_Main {
   Main(CkArgMsg* msg) : n(kMultiplier * CkNumPes()) {
     mainProxy = thisProxy;
     testProxy = CProxy_Test::ckNew();
-    locProxy = CProxy_location_manager::ckNew();
+    locProxy = CProxy_tree_builder::ckNew();
 
     // each array requires its own completion detector for static
     // insertions, ensuring the spanning tree is ready before completion

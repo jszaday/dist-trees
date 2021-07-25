@@ -1,14 +1,14 @@
 #ifndef __MANAGEABLE_BASE_HH__
 #define __MANAGEABLE_BASE_HH__
 
-#include "dist_sect.hh"
+#include "common.hh"
 
 // NOTE eventually this will be replaced with a map
 //      of sections to assocations :3
 using association_ptr_ = std::unique_ptr<association_>;
 
 class manageable_base_ {
-  friend class location_manager;
+  friend class tree_builder;
 
   template <typename T>
   friend class manageable;

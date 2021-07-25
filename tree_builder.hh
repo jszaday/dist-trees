@@ -1,20 +1,17 @@
-#ifndef __NODE_LEVEL_LOC_MGR_HH__
-#define __NODE_LEVEL_LOC_MGR_HH__
-
-#include "manageable.hh"
+#ifndef __TREE_BUILDER_HH__
+#define __TREE_BUILDER_HH__
 
 #include <completion.h>
 #include <hypercomm/core/math.hpp>
-#include <hypercomm/core/locality.hpp>
 
-// TODO move location_manager into its own module
-#include "hello.decl.h"
+#include "manageable.hh"
+#include "tree_builder.decl.h"
 
 #define NOT_IMPLEMENTED CkAbort("not yet implemented")
 
-class location_manager;
+class tree_builder;
 
-class location_manager : public CBase_location_manager, public array_listener {
+class tree_builder : public CBase_tree_builder, public array_listener {
  public:
   using index_type = CkArrayIndex;
   using element_type = manageable_base_ *;
@@ -67,7 +64,7 @@ class location_manager : public CBase_location_manager, public array_listener {
   };
 
   struct contribute_helper_ {
-    CProxy_location_manager manager_;
+    CProxy_tree_builder manager_;
     CkCallback cb_;
     CkArrayID aid_;
 
@@ -83,7 +80,7 @@ class location_manager : public CBase_location_manager, public array_listener {
       CkFreeMsg(msg);
     }
 
-    static CkCallback start_action(location_manager *manager,
+    static CkCallback start_action(tree_builder *manager,
                                    const CkArrayID &aid, const CkCallback &cb) {
       auto instance = new contribute_helper_{
           .manager_ = manager->thisProxy, .cb_ = cb, .aid_ = aid};
@@ -91,7 +88,7 @@ class location_manager : public CBase_location_manager, public array_listener {
                         instance);
     }
 
-    static CkCallback finish_action(location_manager *manager,
+    static CkCallback finish_action(tree_builder *manager,
                                     const CkArrayID &aid,
                                     const CkCallback &cb) {
       auto instance = new contribute_helper_{
@@ -102,7 +99,7 @@ class location_manager : public CBase_location_manager, public array_listener {
   };
 
  public:
-  location_manager(void) : CkArrayListener(0), lock_(CmiCreateLock()) {}
+  tree_builder(void) : CkArrayListener(0), lock_(CmiCreateLock()) {}
 
   virtual const PUP::able::PUP_ID &get_PUP_ID(void) const { NOT_IMPLEMENTED; }
 
@@ -401,7 +398,9 @@ class location_manager : public CBase_location_manager, public array_listener {
     array_listener::ckElementLeaving(elt);
   }
 
-  virtual void pup(PUP::er &p) override { CBase_location_manager::pup(p); }
+  virtual void pup(PUP::er &p) override { CBase_tree_builder::pup(p); }
 };
+
+#include "tree_builder.def.h"
 
 #endif

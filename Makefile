@@ -11,7 +11,10 @@ all: hello
 hello: check-env $(OBJS)
 	$(CHARMC) -language charm++ -o hello $(OBJS) $(LIBS)
 
-hello.decl.h: hello.ci
+tree_builder.decl.h: tree_builder.ci
+	$(CHARMC) tree_builder.ci
+
+hello.decl.h: hello.ci tree_builder.decl.h
 	$(CHARMC) hello.ci
 
 clean:

@@ -1,5 +1,5 @@
-#ifndef __DIST_SECT_HH__
-#define __DIST_SECT_HH__
+#ifndef __COMMON_HH__
+#define __COMMON_HH__
 
 #include <hypercomm/utilities.hpp>
 #include <hypercomm/components/identifiers.hpp>
