@@ -18,6 +18,8 @@ class manageable_base_ {
 
   association_ptr_ association_;
 
+  using stamp_type = reduction_id_t;
+
   manageable_base_(void) : association_(nullptr) {}
   manageable_base_(association_ptr_&& association)
       : association_(std::forward<association_ptr_>(association)) {}
@@ -50,6 +52,7 @@ class manageable_base_ {
 
   virtual const CkArrayID& get_id_(void) const = 0;
   virtual const CkArrayIndex& get_index_(void) const = 0;
+  virtual const stamp_type& get_stamp_(void) const = 0;
 };
 
 #endif

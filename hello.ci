@@ -5,9 +5,6 @@ mainmodule hello {
     entry void done(CkMessage*);
   };
 
-  readonly CProxy_Main mainProxy;
-
-  extern module locality;
   extern module completion;
 
   nodegroup location_manager {
@@ -27,8 +24,16 @@ mainmodule hello {
     entry void insertion_complete_(const CkArrayID&, const CkCallback&);
   };
 
-  array [1D] Test : locality_base_ {
+  readonly CProxy_Main mainProxy;
+  readonly CProxy_location_manager locProxy;
+
+  include "manageable.hh";
+
+  extern module locality;
+
+  array [Max] Test : locality_base_ {
     entry Test(void);
+    entry Test(association_ptr_, const reduction_id_t&);
     entry void make_contribution();
   };
 

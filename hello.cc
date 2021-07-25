@@ -9,6 +9,7 @@
 constexpr int kMultiplier = 2;
 
 /* readonly */ CProxy_Main mainProxy;
+/* readonly */ CProxy_location_manager locProxy;
 
 void enroll_polymorphs(void) {
   hypercomm::init_polymorph_registry();
@@ -41,8 +42,22 @@ class Test : public manageable<vil<CBase_Test, int>> {
  public:
   Test(void) = default;
 
+  Test(association_ptr_&& ptr, const reduction_id_t& seed)
+      : manageable(std::forward<association_ptr_>(ptr), seed) {
+    auto& mine = this->__index__();
+    CkAssertMsg(mine % 2 != 0, "expected an odd index");
+    this->make_contribution();
+  }
+
   void make_contribution(void) {
-    auto val = std::make_shared<typed_value<int>>(this->__index__());
+    auto& mine = this->__index__();
+    if (mine % 2 == 0) {
+      auto next = conv2idx<CkArrayIndex>(mine + 1 + (kMultiplier * CkNumPes()));
+      auto child = locProxy.ckLocalBranch()->create_child(this, next);
+      thisProxy[next].insert(child.first, child.second);
+    }
+
+    auto val = std::make_shared<typed_value<int>>(mine);
     auto fn = std::make_shared<adder<int>>();
     auto cb = CkCallback(CkIndex_Main::done(nullptr), mainProxy);
     auto icb = std::make_shared<inter_callback>(cb);
@@ -52,7 +67,6 @@ class Test : public manageable<vil<CBase_Test, int>> {
 
 class Main : public CBase_Main {
   CProxy_Test testProxy;
-  CProxy_location_manager locProxy;
   int n;
 
  public:
@@ -76,7 +90,7 @@ class Main : public CBase_Main {
         CkCallback(CkIndex_Test::make_contribution(), testProxy));
 
     for (auto i = 0; i < n; i += 1) {
-      testProxy[i].insert();
+      testProxy[conv2idx<CkArrayIndex>(i)].insert();
     }
 
     locProxy.done_inserting(testProxy);
@@ -85,7 +99,11 @@ class Main : public CBase_Main {
   inline int expected(void) const {
     auto sum = 0;
     for (auto i = 0; i < n; i += 1) {
-      sum += i;
+      if (i % 2 == 0) {
+        sum += 2 * i + n + 1;
+      } else {
+        sum += i;
+      }
     }
     return sum;
   }

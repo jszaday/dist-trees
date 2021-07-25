@@ -26,9 +26,8 @@ class location_manager : public CBase_location_manager, public array_listener {
   CmiNodeLock lock_;
 
   using record_type = std::pair<element_type, int>;
-
-  std::unordered_map<CkArrayID, bool, array_id_hasher> insertion_statuses_;
   std::unordered_map<CkArrayID, detector_type, array_id_hasher> arrays_;
+  std::unordered_map<CkArrayID, bool, array_id_hasher> insertion_statuses_;
   std::unordered_map<index_type, record_type, array_index_hasher> elements_;
 
   inline CompletionDetector *detector_for(const CkArrayID &aid) const {
@@ -61,11 +60,10 @@ class location_manager : public CBase_location_manager, public array_listener {
   }
 
   struct endpoint_ {
-    element_type elt_;
     int node_;
-
-    endpoint_(const element_type &elt) : elt_(elt), node_(-1) {}
+    element_type elt_;
     endpoint_(const int &node) : elt_(nullptr), node_(node) {}
+    endpoint_(const element_type &elt) : elt_(elt), node_(-1) {}
   };
 
   struct contribute_helper_ {
@@ -138,14 +136,36 @@ class location_manager : public CBase_location_manager, public array_listener {
     return dynamic_cast<ArrayElement *>(this->lookup(aid, idx, true));
   }
 
+  using stamp_type = manageable_base_::stamp_type;
+
+  std::pair<association_ptr_, stamp_type> create_child(
+      const element_type &elt, const index_type &child) {
+    return this->create_child(elt->get_id_(), elt->get_index_(), child);
+  }
+
+  std::pair<association_ptr_, stamp_type> create_child(
+      const CkArrayID &aid, const index_type &parent, const index_type &child) {
+    CmiLock(this->lock_);
+    auto &rec = this->record_for(aid, parent, false);
+    auto last = rec.first->get_stamp_();
+    rec.first->put_downstream_(child);
+    // this avoids un/locking the individual record
+    CkAssertMsg(rec.second == CkMyRank(),
+                "a child must be created on the same pe as its parent");
+    CmiUnlock(this->lock_);
+    association_ptr_ a(new ::association_);
+    a->valid_upstream_ = true;
+    a->upstream_.emplace_back(parent);
+    return std::make_pair(std::move(a), last);
+  }
+
   void begin_inserting(const CkArrayID &aid, const CkCallback &start,
                        const CkCallback &finish) {
     this->insertion_statuses_[aid] = true;
     if (thisIndex == 0) {
       auto begin = contribute_helper_::start_action(this, aid, start);
       auto end = contribute_helper_::finish_action(this, aid, finish);
-      this->arrays_[aid].start_detection(CkNumNodes(), begin, CkCallback(), end,
-                                         0);
+      this->arrays_[aid].start_detection(CkNumNodes(), begin, {}, end, 0);
     } else {
       this->contribute(start);
     }
@@ -166,7 +186,8 @@ class location_manager : public CBase_location_manager, public array_listener {
       this->detector_for(aid)->consume();
     } else {
       // element has migrated
-      NOT_IMPLEMENTED;
+      auto pe = aid.ckLocalBranch()->lastKnown(idx);
+      this->thisProxy[CkNodeOf(pe)].make_endpoint(aid, idx);
     }
     CmiUnlock(lock_);
   }
@@ -208,6 +229,14 @@ class location_manager : public CBase_location_manager, public array_listener {
   }
 
  protected:
+  record_type &record_for(const CkArrayID &aid, const index_type &idx,
+                          const bool &lock) {
+    if (lock) CmiLock(lock_);
+    auto &rec = this->elements_.find(idx)->second;
+    if (lock) CmiUnlock(lock_);
+    return rec;
+  }
+
   element_type lookup(const CkArrayID &aid, const index_type &idx,
                       const bool &lock) {
     if (lock) CmiLock(lock_);
@@ -297,7 +326,9 @@ class location_manager : public CBase_location_manager, public array_listener {
     }
   }
 
-  void try_reassociate(const element_type &elt) { NOT_IMPLEMENTED; }
+  void try_reassociate(const element_type &elt) {
+    CkError("warning> try_reassociate not implemented\n");
+  }
 
   void associate(const element_type &elt) {
     auto &aid = elt->get_id_();

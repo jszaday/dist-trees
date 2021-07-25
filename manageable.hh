@@ -19,6 +19,10 @@ class manageable : public T, public manageable_base_ {
     return this->ckGetArrayIndex();
   }
 
+  virtual const stamp_type& get_stamp_(void) const override {
+    return this->identity_->last_reduction();
+  }
+
  public:
   // used for static insertion, default initialize
   manageable(void) : identity_(new identity_type_(this)) {}
