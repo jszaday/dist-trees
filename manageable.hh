@@ -53,7 +53,8 @@ class manageable : public T, public manageable_base_ {
   template <typename Fn>
   void affect_ports(const index_type_& idx, const stamp_type& stamp,
                     const Fn& fn) {
-    for (auto& val : this->entry_ports) {
+    auto copy = this->entry_ports;
+    for (auto& val : copy) {
       auto port = std::dynamic_pointer_cast<port_type_>(val.first);
       if (port && (port->id >= stamp) && (port->index == idx)) {
         fn(port);
@@ -84,22 +85,26 @@ class manageable : public T, public manageable_base_ {
           case kReplace: {
             *search = it->to;
             auto& next = reinterpret_index<index_type_>(it->to);
-            this->affect_ports(idx, it->stamp,
-                               [&](const std::shared_ptr<port_type_>& port) {
+            this->affect_ports(
+                idx, it->stamp, [&](const std::shared_ptr<port_type_>& port) {
 #if CMK_DEBUG
-                                 CkPrintf("info> replacing %s with %s.\n",
-                                          std::to_string(idx).c_str(),
-                                          std::to_string(next).c_str());
+                  CkPrintf("info> replacing %s with %s.\n",
+                           std::to_string(idx).c_str(),
+                           std::to_string(next).c_str());
 #endif
-                                 port->index = next;
-                               });
+                  auto iter = this->entry_ports.find(port);
+                  auto value = iter->second;
+                  this->entry_ports.erase(iter);
+                  port->index = next;
+                  this->entry_ports.emplace(port, std::move(value));
+                });
             break;
           }
           default:
             break;
         }
         this->staged_.erase(it);
-        break; // TODO resweep through?
+        break;  // TODO resweep through?
       }
     }
   }
