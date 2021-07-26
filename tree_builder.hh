@@ -7,8 +7,6 @@
 #include "manageable.hh"
 #include "tree_builder.decl.h"
 
-#define NOT_IMPLEMENTED CkAbort("not yet implemented")
-
 class tree_builder;
 
 class tree_builder : public CBase_tree_builder, public array_listener {
@@ -346,9 +344,40 @@ class tree_builder : public CBase_tree_builder, public array_listener {
     }
   }
 
-  void disassociate(const element_type &elt) {
-    if (elt->is_endpoint_()) {
+  void sweep_reducers(const element_type &elt) {
+    auto &coms = elt->get_components_();
+    using value_type = typename component_map::value_type;
+    auto search = std::find_if(std::begin(coms), std::end(coms),
+      [](const value_type& val) {
+        return (bool)std::dynamic_pointer_cast<reducer>(val.second);
+      });
+    if (search != std::end(coms)) {
+      // need to ensure (safe) message redelivery
+      // (NOTE this is a mainline hypercomm matter!)
       NOT_IMPLEMENTED;
+    }
+  }
+
+  void disassociate(const element_type &elt) {
+    CkAssertMsg(elt->association_->valid_upstream_);
+
+    auto& curr = elt->get_index_();
+    if (elt->num_downstream_() == 0) {
+      if (elt->is_endpoint_()) {
+        // reset endpoint status
+        NOT_IMPLEMENTED;
+      } else {
+        // delete from parent
+        auto proxy = (CProxy_Test)elt->get_id_(); // TODO move into locality
+        auto& parent = *(std::begin(elt->association_->upstream_));
+        proxy[parent].delete_downstream(curr, elt->get_stamp_());
+      }
+    } else if (elt->num_downstream_() == 1) {
+      auto proxy = (CProxy_Test)elt->get_id_(); // TODO move into locality
+      auto &parent = *(std::begin(elt->association_->upstream_));
+      auto &child = *(std::begin(elt->association_->downstream_));
+      proxy[parent].replace_downstream(curr, child, elt->get_stamp_());
+      elt->get_loc_mgr_()->forward(curr, parent);
     } else {
       NOT_IMPLEMENTED;
     }

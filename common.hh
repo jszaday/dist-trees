@@ -4,6 +4,8 @@
 #include <hypercomm/utilities.hpp>
 #include <hypercomm/components/identifiers.hpp>
 
+#define NOT_IMPLEMENTED CkAbort("not yet implemented")
+
 using namespace hypercomm;
 
 using array_listener = CkArrayListener;

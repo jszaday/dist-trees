@@ -50,9 +50,11 @@ class manageable_base_ {
     }
   }
 
+  virtual CkLocMgr *get_loc_mgr_(void) const = 0;
   virtual const CkArrayID& get_id_(void) const = 0;
   virtual const CkArrayIndex& get_index_(void) const = 0;
   virtual const stamp_type& get_stamp_(void) const = 0;
+  virtual const component_map& get_components_(void) const = 0;
 };
 
 #endif

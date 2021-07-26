@@ -5,11 +5,12 @@
 #include <hypercomm/core/typed_value.hpp>
 #include <hypercomm/core/inter_callback.hpp>
 
-#include "tree_builder.hh"
 #include "hello.decl.h"
+#include "tree_builder.hh"
 
 constexpr int kMultiplier = 2;
 
+/* readonly */ int numElements;
 /* readonly */ CProxy_Main mainProxy;
 /* readonly */ CProxy_tree_builder locProxy;
 
@@ -52,11 +53,16 @@ class Test : public manageable<vil<CBase_Test, int>> {
   }
 
   void make_contribution(void) {
+    this->update_context();
+
     auto& mine = this->__index__();
     if (mine % 2 == 0) {
-      auto next = conv2idx<CkArrayIndex>(mine + 1 + (kMultiplier * CkNumPes()));
+      auto next = conv2idx<CkArrayIndex>(mine + numElements + 1);
       auto child = locProxy.ckLocalBranch()->create_child(this, next);
       thisProxy[next].insert(child.first, child.second);
+    } else if (mine < numElements) {
+      thisProxy[conv2idx<CkArrayIndex>(mine)].ckDestroy();
+      return;
     }
 
     auto val = std::make_shared<typed_value<int>>(mine);
@@ -69,13 +75,13 @@ class Test : public manageable<vil<CBase_Test, int>> {
 
 class Main : public CBase_Main {
   CProxy_Test testProxy;
-  int n;
 
  public:
-  Main(CkArgMsg* msg) : n(kMultiplier * CkNumPes()) {
+  Main(CkArgMsg* msg) {
     mainProxy = thisProxy;
     testProxy = CProxy_Test::ckNew();
     locProxy = CProxy_tree_builder::ckNew();
+    numElements = kMultiplier * CkNumPes();
 
     // each array requires its own completion detector for static
     // insertions, ensuring the spanning tree is ready before completion
@@ -91,7 +97,7 @@ class Main : public CBase_Main {
         testProxy, CkCallbackResumeThread(),
         CkCallback(CkIndex_Test::make_contribution(), testProxy));
 
-    for (auto i = 0; i < n; i += 1) {
+    for (auto i = 0; i < numElements; i += 1) {
       testProxy[conv2idx<CkArrayIndex>(i)].insert();
     }
 
@@ -100,11 +106,9 @@ class Main : public CBase_Main {
 
   inline int expected(void) const {
     auto sum = 0;
-    for (auto i = 0; i < n; i += 1) {
+    for (auto i = 0; i < numElements; i += 1) {
       if (i % 2 == 0) {
-        sum += 2 * i + n + 1;
-      } else {
-        sum += i;
+        sum += 2 * i + numElements + 1;
       }
     }
     return sum;

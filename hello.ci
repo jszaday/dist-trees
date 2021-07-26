@@ -7,6 +7,7 @@ mainmodule hello {
 
   readonly CProxy_Main mainProxy;
   readonly CProxy_tree_builder locProxy;
+  readonly int numElements;
 
   include "manageable.hh";
 
@@ -17,6 +18,9 @@ mainmodule hello {
     entry Test(void);
     entry Test(association_ptr_, const reduction_id_t&);
     entry void make_contribution();
+
+    entry void delete_downstream(const CkArrayIndex&, const reduction_id_t&);
+    entry void replace_downstream(const CkArrayIndex&, const CkArrayIndex&, const reduction_id_t&);
   };
 
   initproc void enroll_polymorphs(void);
