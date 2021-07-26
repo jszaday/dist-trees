@@ -18,9 +18,7 @@ mainmodule hello {
     entry Test(void);
     entry Test(association_ptr_, const reduction_id_t&);
     entry void make_contribution();
-
-    entry void delete_downstream(const CkArrayIndex&, const reduction_id_t&);
-    entry void replace_downstream(const CkArrayIndex&, const CkArrayIndex&, const reduction_id_t&);
+    entry void replace_downstream(const CkArrayIndex&, const std::vector<CkArrayIndex>&, const reduction_id_t&);
   };
 
   initproc void enroll_polymorphs(void);

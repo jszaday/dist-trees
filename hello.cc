@@ -78,10 +78,13 @@ class Main : public CBase_Main {
 
  public:
   Main(CkArgMsg* msg) {
+    int mult =
+        (msg->argc >= 2) ? atoi(msg->argv[1])
+                         : kMultiplier;
     mainProxy = thisProxy;
     testProxy = CProxy_Test::ckNew();
     locProxy = CProxy_tree_builder::ckNew();
-    numElements = kMultiplier * CkNumPes();
+    numElements = mult * CkNumPes();
 
     // each array requires its own completion detector for static
     // insertions, ensuring the spanning tree is ready before completion

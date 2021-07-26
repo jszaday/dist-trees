@@ -78,16 +78,15 @@ class tree_builder : public CBase_tree_builder, public array_listener {
       CkFreeMsg(msg);
     }
 
-    static CkCallback start_action(tree_builder *manager,
-                                   const CkArrayID &aid, const CkCallback &cb) {
+    static CkCallback start_action(tree_builder *manager, const CkArrayID &aid,
+                                   const CkCallback &cb) {
       auto instance = new contribute_helper_{
           .manager_ = manager->thisProxy, .cb_ = cb, .aid_ = aid};
       return CkCallback((CkCallbackFn)&contribute_helper_::start_action_,
                         instance);
     }
 
-    static CkCallback finish_action(tree_builder *manager,
-                                    const CkArrayID &aid,
+    static CkCallback finish_action(tree_builder *manager, const CkArrayID &aid,
                                     const CkCallback &cb) {
       auto instance = new contribute_helper_{
           .manager_ = manager->thisProxy, .cb_ = cb, .aid_ = aid};
@@ -344,42 +343,27 @@ class tree_builder : public CBase_tree_builder, public array_listener {
     }
   }
 
-  void sweep_reducers(const element_type &elt) {
-    auto &coms = elt->get_components_();
-    using value_type = typename component_map::value_type;
-    auto search = std::find_if(std::begin(coms), std::end(coms),
-      [](const value_type& val) {
-        return (bool)std::dynamic_pointer_cast<reducer>(val.second);
-      });
-    if (search != std::end(coms)) {
-      // need to ensure (safe) message redelivery
-      // (NOTE this is a mainline hypercomm matter!)
+  void disassociate(const element_type &elt) {
+    auto &aid = elt->get_id_();
+    if (this->is_inserting(aid) || !elt->association_->valid_upstream_) {
       NOT_IMPLEMENTED;
     }
-  }
 
-  void disassociate(const element_type &elt) {
-    CkAssertMsg(elt->association_->valid_upstream_);
+    auto proxy = (CProxy_Test)aid;  // TODO change to locality
+    auto &curr = elt->get_index_();
 
-    auto& curr = elt->get_index_();
-    if (elt->num_downstream_() == 0) {
-      if (elt->is_endpoint_()) {
-        // reset endpoint status
-        NOT_IMPLEMENTED;
-      } else {
-        // delete from parent
-        auto proxy = (CProxy_Test)elt->get_id_(); // TODO move into locality
-        auto& parent = *(std::begin(elt->association_->upstream_));
-        proxy[parent].delete_downstream(curr, elt->get_stamp_());
-      }
-    } else if (elt->num_downstream_() == 1) {
-      auto proxy = (CProxy_Test)elt->get_id_(); // TODO move into locality
-      auto &parent = *(std::begin(elt->association_->upstream_));
-      auto &child = *(std::begin(elt->association_->downstream_));
-      proxy[parent].replace_downstream(curr, child, elt->get_stamp_());
-      elt->get_loc_mgr_()->forward(curr, parent);
-    } else {
+    if (elt->is_endpoint_()) {
+      // reset endpoint status
       NOT_IMPLEMENTED;
+    } else {
+      auto &parent = *(std::begin(elt->association_->upstream_));
+      auto &children = elt->association_->downstream_;
+      proxy[parent].replace_downstream(curr, children, elt->get_stamp_());
+
+      if (!children.empty()) {
+        // redirect downstream messages upstream
+        elt->get_loc_mgr_()->forward(curr, parent);
+      }
     }
   }
 

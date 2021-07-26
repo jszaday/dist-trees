@@ -118,16 +118,18 @@ class manageable : public T, public manageable_base_ {
       : manageable_base_(std::forward<association_ptr_>(association)),
         identity_(new identity_type_(this, seed)) {}
 
-  void delete_downstream(const CkArrayIndex& idx, stamp_type&& stamp) {
+  void replace_downstream(const CkArrayIndex& from,
+                          std::vector<CkArrayIndex>&& to, stamp_type&& stamp) {
     this->update_context();
-    this->staged_.emplace_back(idx, std::move(stamp));
-    this->resolve_transactions();
-  }
+    if (to.empty()) {
+      this->staged_.emplace_back(from, std::move(stamp));
+    } else {
+      if (to.size() >= 2) {
+        NOT_IMPLEMENTED;  // 1-to-n increase in expected values
+      }
 
-  void replace_downstream(const CkArrayIndex& from, const CkArrayIndex& to,
-                          stamp_type&& stamp) {
-    this->update_context();
-    this->staged_.emplace_back(from, to, std::move(stamp));
+      this->staged_.emplace_back(from, *(to.begin()), std::move(stamp));
+    }
     this->resolve_transactions();
   }
 
