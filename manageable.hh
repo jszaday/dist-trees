@@ -1,6 +1,8 @@
 #ifndef __MANAGEABLE_HH__
 #define __MANAGEABLE_HH__
 
+#include <hypercomm/core/locality.hpp>
+
 #include "managed_identity.hh"
 
 template <typename T>
@@ -56,7 +58,7 @@ class manageable : public T, public manageable_base_ {
     auto copy = this->entry_ports;
     for (auto& val : copy) {
       auto port = std::dynamic_pointer_cast<port_type_>(val.first);
-      if (port && (port->id >= stamp) && (port->index == idx)) {
+      if (port && (port->id <= stamp) && (port->index == idx)) {
         fn(port);
       }
     }
@@ -104,7 +106,21 @@ class manageable : public T, public manageable_base_ {
             break;
         }
         this->staged_.erase(it);
-        break;  // TODO resweep through?
+        this->resolve_transactions();
+        return;  // TODO resweep through?
+      }
+    }
+  }
+
+  void add_downstream(const CkArrayIndex& idx, const stamp_type& stamp) {
+    auto &down = reinterpret_index<index_type_>(idx);
+    this->association_->downstream_.emplace_back(idx);
+
+    for (auto& pair : this->get_components_()) {
+      auto rdcr = dynamic_cast<reducer*>(pair.second.get());
+      if (rdcr != nullptr && rdcr->redn_no <= stamp) {
+        auto port = std::make_shared<reduction_port<index_type_>>(rdcr->redn_no, down);
+        access_context()->connect(port, rdcr->id, ++rdcr->n_dstream);
       }
     }
   }
@@ -124,11 +140,11 @@ class manageable : public T, public manageable_base_ {
     if (to.empty()) {
       this->staged_.emplace_back(from, std::move(stamp));
     } else {
-      if (to.size() >= 2) {
-        NOT_IMPLEMENTED;  // 1-to-n increase in expected values
+      for (auto it = (std::begin(to) + 1); it != std::end(to); it += 1) {
+        this->add_downstream(*it, stamp);
       }
 
-      this->staged_.emplace_back(from, *(to.begin()), std::move(stamp));
+      this->staged_.emplace_back(from, *(std::begin(to)), std::move(stamp));
     }
     this->resolve_transactions();
   }
@@ -139,7 +155,7 @@ class manageable : public T, public manageable_base_ {
   }
 
   // debugging helper method
-  inline void ckPrintTree(void) const {
+  inline void ckPrintTree(const char* msg) const {
     std::stringstream ss;
 
     auto upstream =
@@ -150,7 +166,7 @@ class manageable : public T, public manageable_base_ {
                    : utilities::idx2str(association_->upstream_.front()));
 
     ss << utilities::idx2str(this->get_index_()) << "@nd" << CkMyNode();
-    ss << "> has upstream " << upstream << " and downstream [";
+    ss << "> " << msg << ", has upstream " << upstream << " and downstream [";
     for (const auto& ds : association_->downstream_) {
       ss << utilities::idx2str(ds) << ",";
     }

@@ -361,6 +361,11 @@ class tree_builder : public CBase_tree_builder, public array_listener {
       proxy[parent].replace_downstream(curr, children, elt->get_stamp_());
 
       if (!children.empty()) {
+#if CMK_DEBUG
+        CkPrintf("%s> forwarding messages to %s.\n",
+          utilities::idx2str(curr).c_str(),
+          utilities::idx2str(parent).c_str());
+#endif
         // redirect downstream messages upstream
         elt->get_loc_mgr_()->forward(curr, parent);
       }
