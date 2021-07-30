@@ -121,7 +121,7 @@ class manageable : public T, public manageable_base_ {
       if (rdcr != nullptr && rdcr->redn_no <= stamp) {
         auto port = std::make_shared<reduction_port<index_type_>>(rdcr->redn_no, down);
         // open another input port in the reducer (via increment)
-        access_context()->connect(port, rdcr->id, rdcr->n_ustream++);
+        access_context_()->connect(port, rdcr->id, rdcr->n_ustream++);
       }
     }
   }
