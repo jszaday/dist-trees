@@ -3,16 +3,28 @@
 
 #include <hypercomm/core/locality.hpp>
 
-#include "managed_identity.hh"
+#include "managed_imprintable.hh"
+
+template <typename Index>
+class identity_holder_ {
+ public:
+  using identity_ptr_ = std::shared_ptr<identity<Index>>;
+
+  virtual const identity_ptr_& get_identity_(void) const = 0;
+};
 
 template <typename T>
-class manageable : public T, public manageable_base_ {
+class manageable : public T, public manageable_base_, public identity_holder_<typename T::index_type> {
   using index_type_ = typename T::index_type;
   using port_type_ = reduction_port<index_type_>;
   using identity_type_ = managed_identity<index_type_>;
-  using identity_ptr_ = std::shared_ptr<identity<index_type_>>;
+  using typename identity_holder_<index_type_>::identity_ptr_;
 
   identity_ptr_ identity_;
+
+  inline virtual const identity_ptr_& get_identity_(void) const override {
+    return this->identity_;
+  }
 
   inline virtual const CkArrayID& get_id_(void) const override {
     return this->ckGetArrayID();
@@ -150,11 +162,6 @@ class manageable : public T, public manageable_base_ {
     this->resolve_transactions();
   }
 
-  // accessor for ( identity ) spanning all members of the array
-  inline const identity_ptr_& ckAllIdentity(void) const {
-    return this->identity_;
-  }
-
   // debugging helper method
   inline void ckPrintTree(const char* msg) const {
     std::stringstream ss;
@@ -176,5 +183,24 @@ class manageable : public T, public manageable_base_ {
     CkPrintf("%s\n", ss.str().c_str());
   }
 };
+
+template<typename Index>
+const typename managed_imprintable<Index>::identity_ptr& managed_imprintable<Index>::imprint(const locality_ptr& locality) const {
+  return dynamic_cast<identity_holder_<Index>*>(locality)->get_identity_();
+}
+
+
+template<typename Index>
+const Index& managed_imprintable<Index>::pick_root(const proxy_ptr& proxy, Index* favored) const {
+  if (favored) {
+    return *favored;
+  } else {
+    // TODO handle this more carefully -- stepwise ensure validity
+    // auto aid = std::dynamic_pointer_cast<array_proxy>(proxy)->id();
+    // auto* locMgr = CProxy_ArrayBase(aid).ckLocMgr();
+    // return reinterpret_index<Index>(std::begin(locMgr->idx2id)->first);
+    NOT_IMPLEMENTED;
+  }
+}
 
 #endif
