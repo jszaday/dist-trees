@@ -196,9 +196,10 @@ const Index& managed_imprintable<Index>::pick_root(const proxy_ptr& proxy, Index
     return *favored;
   } else {
     // TODO handle this more carefully -- stepwise ensure validity
-    auto aid = std::dynamic_pointer_cast<array_proxy>(proxy)->id();
-    auto* locMgr = CProxy_ArrayBase(aid).ckLocMgr();
-    return reinterpret_index<Index>(std::begin(locMgr->idx2id)->first);
+    // auto aid = std::dynamic_pointer_cast<array_proxy>(proxy)->id();
+    // auto* locMgr = CProxy_ArrayBase(aid).ckLocMgr();
+    // return reinterpret_index<Index>(std::begin(locMgr->idx2id)->first);
+    NOT_IMPLEMENTED;
   }
 }
 
