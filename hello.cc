@@ -14,6 +14,12 @@ constexpr int kMultiplier = 2;
 /* readonly */ CProxy_Main mainProxy;
 /* readonly */ CProxy_tree_builder locProxy;
 
+namespace ck {
+  std::shared_ptr<imprintable<int>> all_imprintable(void) {
+    return std::make_shared<managed_imprintable<int>>();
+  }
+}
+
 void enroll_polymorphs(void) {
   hypercomm::init_polymorph_registry();
 
@@ -69,7 +75,7 @@ class Test : public manageable<vil<CBase_Test, int>> {
     auto fn = std::make_shared<adder<int>>();
     auto cb = CkCallback(CkIndex_Main::done(nullptr), mainProxy);
     auto icb = std::make_shared<inter_callback>(cb);
-    this->local_contribution(this->ckAllIdentity(), std::move(val), fn, icb);
+    this->local_contribution(ck::all_imprintable(), std::move(val), fn, icb);
   }
 };
 
