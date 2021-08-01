@@ -162,11 +162,6 @@ class manageable : public T, public manageable_base_, public identity_holder_<ty
     this->resolve_transactions();
   }
 
-  // // accessor for ( identity ) spanning all members of the array
-  // inline const identity_ptr_& ckAllIdentity(void) const {
-  //   return this->identity_;
-  // }
-
   // debugging helper method
   inline void ckPrintTree(const char* msg) const {
     std::stringstream ss;
@@ -192,6 +187,19 @@ class manageable : public T, public manageable_base_, public identity_holder_<ty
 template<typename Index>
 const typename managed_imprintable<Index>::identity_ptr& managed_imprintable<Index>::imprint(const locality_ptr& locality) const {
   return dynamic_cast<identity_holder_<Index>*>(locality)->get_identity_();
+}
+
+
+template<typename Index>
+const Index& managed_imprintable<Index>::pick_root(const proxy_ptr& proxy, Index* favored) const {
+  if (favored) {
+    return *favored;
+  } else {
+    // TODO handle this more carefully -- stepwise ensure validity
+    auto aid = std::dynamic_pointer_cast<array_proxy>(proxy)->id();
+    auto* locMgr = CProxy_ArrayBase(aid).ckLocMgr();
+    return reinterpret_index<Index>(std::begin(locMgr->idx2id)->first);
+  }
 }
 
 #endif
