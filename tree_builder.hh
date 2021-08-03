@@ -3,6 +3,7 @@
 
 #include <completion.h>
 #include <hypercomm/core/math.hpp>
+#include <hypercomm/messaging/interceptor.hpp>
 
 #include "manageable.hh"
 #include "tree_builder.decl.h"
@@ -187,7 +188,7 @@ class tree_builder : public CBase_tree_builder, public array_listener {
 
   void receive_upstream(const int &node, const CkArrayID &aid,
                         const index_type &idx) {
-#if CMK_DEBUG
+#if CMK_VERBOSE
     CkPrintf("nd%d> received upstream from %d, idx=%s.\n", CkMyNode(), node,
              utilities::idx2str(idx).c_str());
 #endif
@@ -199,7 +200,7 @@ class tree_builder : public CBase_tree_builder, public array_listener {
 
   void receive_downstream(const int &node, const CkArrayID &aid,
                           const index_type &idx) {
-#if CMK_DEBUG
+#if CMK_VERBOSE
     CkPrintf("nd%d> received downstream from %d, idx=%s.\n", CkMyNode(), node,
              utilities::idx2str(idx).c_str());
 #endif
@@ -349,7 +350,6 @@ class tree_builder : public CBase_tree_builder, public array_listener {
       NOT_IMPLEMENTED;
     }
 
-    auto proxy = (CProxy_Test)aid;  // TODO change to locality
     auto &curr = elt->get_index_();
 
     if (elt->is_endpoint_()) {
@@ -358,16 +358,21 @@ class tree_builder : public CBase_tree_builder, public array_listener {
     } else {
       auto &parent = *(std::begin(elt->association_->upstream_));
       auto &children = elt->association_->downstream_;
-      proxy[parent].replace_downstream(curr, children, elt->get_stamp_());
+      auto interceptor = interceptor_[CkMyNode()];
+
+      auto *msg = hypercomm::pack(curr, children, elt->get_stamp_());
+      UsrToEnv(msg)->setEpIdx( // TODO change to locality
+        CkIndex_Test::replace_downstream({}, {}, {}));
+      interceptor.deliver(aid, parent, msg);
 
       if (!children.empty()) {
-#if CMK_DEBUG
+#if CMK_VERBOSE
         CkPrintf("%s> forwarding messages to %s.\n",
                  utilities::idx2str(curr).c_str(),
                  utilities::idx2str(parent).c_str());
 #endif
         // redirect downstream messages upstream
-        elt->get_loc_mgr_()->forward(curr, parent);
+        interceptor.forward(aid, curr, parent);
       }
     }
   }

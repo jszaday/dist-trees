@@ -88,7 +88,7 @@ class manageable : public T, public manageable_base_, public identity_holder_<ty
             ds.erase(search);
             this->affect_ports(
                 idx, it->stamp, [&](const std::shared_ptr<port_type_>& port) {
-#if CMK_DEBUG
+#if CMK_VERBOSE
                   CkPrintf("info> sending invalidation to %s.\n",
                            std::to_string(idx).c_str());
 #endif
@@ -101,7 +101,7 @@ class manageable : public T, public manageable_base_, public identity_holder_<ty
             auto& next = reinterpret_index<index_type_>(it->to);
             this->affect_ports(
                 idx, it->stamp, [&](const std::shared_ptr<port_type_>& port) {
-#if CMK_DEBUG
+#if CMK_VERBOSE
                   CkPrintf("info> replacing %s with %s.\n",
                            std::to_string(idx).c_str(),
                            std::to_string(next).c_str());
