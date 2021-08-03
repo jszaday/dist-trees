@@ -189,9 +189,8 @@ const typename managed_imprintable<Index>::identity_ptr& managed_imprintable<Ind
   return dynamic_cast<identity_holder_<Index>*>(locality)->get_identity_();
 }
 
-
 template<typename Index>
-const Index& managed_imprintable<Index>::pick_root(const proxy_ptr& proxy, Index* favored) const {
+const Index& managed_imprintable<Index>::pick_root(const proxy_ptr& proxy, const Index* favored) const {
   if (favored) {
     return *favored;
   } else {

@@ -10,8 +10,18 @@ class managed_imprintable : public imprintable<Index> {
  public:
   managed_imprintable(void) = default;
 
+  // TODO include proxy in this as well :)
+  virtual bool is_member(const Index&) const { return true; }
+
+  virtual hash_code hash(void) const { return typeid(*this).hash_code(); }
+
+  virtual bool equals(const std::shared_ptr<comparable>& other) const {
+    return (bool)std::dynamic_pointer_cast<managed_imprintable<Index>>(other);
+  }
+
   // pick the root for the spanning tree, with a favored candidate
-  virtual const Index& pick_root(const proxy_ptr& proxy, Index* favored) const;
+  virtual const Index& pick_root(const proxy_ptr& proxy,
+                                 const Index* favored) const;
 
   using identity_ptr = typename imprintable<Index>::identity_ptr;
   using typename imprintable<Index>::locality_ptr;
