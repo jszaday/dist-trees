@@ -21,9 +21,12 @@ class tree_builder : public CBase_tree_builder, public array_listener {
   CmiNodeLock lock_;
 
   using record_type = std::pair<element_type, int>;
+  using elements_type =
+      std::unordered_map<index_type, record_type, array_index_hasher>;
+
   std::unordered_map<CkArrayID, detector_type, array_id_hasher> arrays_;
+  std::unordered_map<CkArrayID, elements_type, array_id_hasher> elements_;
   std::unordered_map<CkArrayID, bool, array_id_hasher> insertion_statuses_;
-  std::unordered_map<index_type, record_type, array_index_hasher> elements_;
 
   inline CompletionDetector *detector_for(const CkArrayID &aid) const {
 #if CMK_ERROR_CHECKING
@@ -107,10 +110,6 @@ class tree_builder : public CBase_tree_builder, public array_listener {
     CmiLock(lock_);
     auto search = this->arrays_.find(aid);
     if (search == std::end(this->arrays_)) {
-      if (!this->arrays_.empty()) {
-        NOT_IMPLEMENTED;
-      }
-
       this->arrays_[aid] = detector;
     } else {
       CkAbort("array registered twice!");
@@ -226,7 +225,7 @@ class tree_builder : public CBase_tree_builder, public array_listener {
   record_type &record_for(const CkArrayID &aid, const index_type &idx,
                           const bool &lock) {
     if (lock) CmiLock(lock_);
-    auto &rec = this->elements_.find(idx)->second;
+    auto &rec = this->elements_[aid].find(idx)->second;
     if (lock) CmiUnlock(lock_);
     return rec;
   }
@@ -234,11 +233,9 @@ class tree_builder : public CBase_tree_builder, public array_listener {
   element_type lookup(const CkArrayID &aid, const index_type &idx,
                       const bool &lock) {
     if (lock) CmiLock(lock_);
-    element_type elt = nullptr;
-    auto search = this->elements_.find(idx);
-    if (search != std::end(this->elements_)) {
-      elt = search->second.first;
-    }
+    auto &elements = this->elements_[aid];
+    auto search = elements.find(idx);
+    auto *elt = (search == std::end(elements)) ? nullptr : search->second.first;
     if (lock) CmiUnlock(lock_);
     return elt;
   }
@@ -273,20 +270,22 @@ class tree_builder : public CBase_tree_builder, public array_listener {
     NOT_IMPLEMENTED;
   }
 
-  using iter_type = typename decltype(elements_)::iterator;
+  using iter_type = typename elements_type::iterator;
 
-  inline iter_type find_target(const bool &up) {
-    using value_type = typename decltype(this->elements_)::value_type;
+  inline iter_type find_target(const CkArrayID &aid, const bool &up) {
+    auto &elements = this->elements_[aid];
+    using value_type = typename elements_type::value_type;
     if (up) {
       return std::find_if(
-          std::begin(this->elements_), std::end(this->elements_),
+          std::begin(elements), std::end(elements),
           [](const value_type &val) -> bool {
             auto &val_ = val.second.first;
             return !(val_->association_ && val_->association_->valid_upstream_);
           });
     } else {
+      // TODO ( ensure this cannot form cycles? )
       return std::min_element(
-          std::begin(this->elements_), std::end(this->elements_),
+          std::begin(elements), std::end(elements),
           [](const value_type &lhs, const value_type &rhs) -> bool {
             auto &lhs_ = lhs.second.first;
             auto &rhs_ = rhs.second.first;
@@ -297,8 +296,8 @@ class tree_builder : public CBase_tree_builder, public array_listener {
 
   element_type reg_upstream(const endpoint_ &ep, const CkArrayID &aid,
                             const index_type &idx) {
-    auto search = this->find_target(true);
-    if (search == std::end(this->elements_)) {
+    auto search = this->find_target(aid, true);
+    if (search == std::end(this->elements_[aid])) {
       this->send_downstream(ep, aid, idx);
       return nullptr;
     } else {
@@ -310,11 +309,14 @@ class tree_builder : public CBase_tree_builder, public array_listener {
 
   element_type reg_downstream(const endpoint_ &ep, const CkArrayID &aid,
                               const index_type &idx) {
-    if (this->elements_.empty()) {
+    auto &elements = this->elements_[aid];
+    if (elements.empty()) {
       this->send_upstream(ep, aid, idx);
       return nullptr;
     } else {
-      auto &target = this->find_target(false)->second.first;
+      auto search = this->find_target(aid, false);
+      CkAssert(search != std::end(elements));
+      auto &target = search->second.first;
       target->put_downstream_(idx);
       return target;
     }
@@ -324,8 +326,7 @@ class tree_builder : public CBase_tree_builder, public array_listener {
     CkError("warning> try_reassociate not implemented\n");
   }
 
-  void associate(const element_type &elt) {
-    auto &aid = elt->get_id_();
+  void associate(const CkArrayID &aid, const element_type &elt) {
     auto &assoc = elt->association_;
     // if we are (statically) inserting an unassociated element
     if (this->is_inserting(aid) && !assoc) {
@@ -343,8 +344,7 @@ class tree_builder : public CBase_tree_builder, public array_listener {
     }
   }
 
-  void disassociate(const element_type &elt) {
-    auto &aid = elt->get_id_();
+  void disassociate(const CkArrayID &aid, const element_type &elt) {
     if (this->is_inserting(aid) || !elt->association_->valid_upstream_) {
       NOT_IMPLEMENTED;
     }
@@ -363,8 +363,8 @@ class tree_builder : public CBase_tree_builder, public array_listener {
       if (!children.empty()) {
 #if CMK_DEBUG
         CkPrintf("%s> forwarding messages to %s.\n",
-          utilities::idx2str(curr).c_str(),
-          utilities::idx2str(parent).c_str());
+                 utilities::idx2str(curr).c_str(),
+                 utilities::idx2str(parent).c_str());
 #endif
         // redirect downstream messages upstream
         elt->get_loc_mgr_()->forward(curr, parent);
@@ -374,22 +374,25 @@ class tree_builder : public CBase_tree_builder, public array_listener {
 
   void reg_element(ArrayElement *elt, const bool &created) {
     auto cast = dynamic_cast<element_type>(elt);
-    const auto &idx = elt->ckGetArrayIndex();
+    auto &aid = cast->get_id_();
+    auto &idx = cast->get_index_();
     CmiLock(lock_);
-    if (created) associate(cast);
-    this->elements_[idx] = std::make_pair(cast, CkMyRank());
+    if (created) associate(aid, cast);
+    this->elements_[aid][idx] = std::make_pair(cast, CkMyRank());
     CmiUnlock(lock_);
   }
 
   void unreg_element(ArrayElement *elt, const bool &died) {
     auto cast = dynamic_cast<element_type>(elt);
-    const auto &idx = elt->ckGetArrayIndex();
+    auto &aid = cast->get_id_();
+    auto &idx = cast->get_index_();
     CmiLock(lock_);
-    auto search = this->elements_.find(idx);
-    if (search != std::end(this->elements_)) {
-      this->elements_.erase(search);
+    auto &elements = this->elements_[aid];
+    auto search = elements.find(idx);
+    if (search != std::end(elements)) {
+      elements.erase(search);
     }
-    if (died) disassociate(cast);
+    if (died) disassociate(aid, cast);
     CmiUnlock(lock_);
   }
 
