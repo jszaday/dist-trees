@@ -5,26 +5,14 @@
 
 #include "managed_imprintable.hh"
 
-template <typename Index>
-class identity_holder_ {
- public:
-  using identity_ptr_ = std::shared_ptr<identity<Index>>;
-
-  virtual const identity_ptr_& get_identity_(void) const = 0;
-};
-
 template <typename T>
-class manageable : public T, public manageable_base_, public identity_holder_<typename T::index_type> {
+class manageable : public T, public manageable_base_ {
   using index_type_ = typename T::index_type;
   using port_type_ = reduction_port<index_type_>;
-  using identity_type_ = managed_identity<index_type_>;
-  using typename identity_holder_<index_type_>::identity_ptr_;
+  using identity_type_ = identity<index_type_>;
+  using identity_ptr_ = std::shared_ptr<identity_type_>;
 
-  identity_ptr_ identity_;
-
-  inline virtual const identity_ptr_& get_identity_(void) const override {
-    return this->identity_;
-  }
+  const identity_ptr_& identity_;
 
   inline virtual const CkArrayID& get_id_(void) const override {
     return this->ckGetArrayID();
@@ -34,8 +22,9 @@ class manageable : public T, public manageable_base_, public identity_holder_<ty
     return this->ckGetArrayIndex();
   }
 
-  virtual const stamp_type& get_stamp_(void) const override {
-    return this->identity_->last_reduction();
+  virtual stamp_type get_stamp_(void) const override {
+    return std::make_tuple(this->identity_->get_imprintable(),
+                           this->identity_->last_reduction());
   }
 
   virtual const component_map& get_components_(void) const override {
@@ -70,7 +59,7 @@ class manageable : public T, public manageable_base_, public identity_holder_<ty
     auto copy = this->entry_ports;
     for (auto& val : copy) {
       auto port = std::dynamic_pointer_cast<port_type_>(val.first);
-      if (port && (port->id <= stamp) && (port->index == idx)) {
+      if (port && port->affected_by(stamp) && (port->index == idx)) {
         fn(port);
       }
     }
@@ -125,13 +114,14 @@ class manageable : public T, public manageable_base_, public identity_holder_<ty
   }
 
   void add_downstream(const CkArrayIndex& idx, const stamp_type& stamp) {
-    auto &down = reinterpret_index<index_type_>(idx);
+    auto& down = reinterpret_index<index_type_>(idx);
     this->association_->downstream_.emplace_back(idx);
 
     for (auto& pair : this->get_components_()) {
       auto rdcr = dynamic_cast<reducer*>(pair.second.get());
-      if (rdcr != nullptr && rdcr->redn_no <= stamp) {
-        auto port = std::make_shared<reduction_port<index_type_>>(rdcr->redn_no, down);
+      if (rdcr && rdcr->affected_by(stamp)) {
+        auto port =
+            std::make_shared<reduction_port<index_type_>>(rdcr->stamp, down);
         // open another input port in the reducer (via increment)
         access_context_()->connect(port, rdcr->id, rdcr->n_ustream++);
       }
@@ -140,12 +130,26 @@ class manageable : public T, public manageable_base_, public identity_holder_<ty
 
  public:
   // used for static insertion, default initialize
-  manageable(void) : identity_(new identity_type_(this)) {}
+  manageable(void)
+      : identity_(this->identities[managed_imprintable<int>::instance()] =
+                      std::make_shared<managed_identity<index_type_>>(this)) {}
 
   // used for dynamic insertion, imprints child with parent data
   manageable(association_ptr_&& association, const reduction_id_t& seed)
       : manageable_base_(std::forward<association_ptr_>(association)),
-        identity_(new identity_type_(this, seed)) {}
+        identity_(
+            this->identities[managed_imprintable<int>::instance()] =
+                std::make_shared<managed_identity<index_type_>>(this, seed)) {}
+
+  inline void replace_downstream(CkMessage* msg) {
+    CkArrayIndex from;
+    std::vector<CkArrayIndex> to;
+    stamp_type stamp;
+
+    hypercomm::unpack(msg, from, to, stamp);
+
+    this->replace_downstream(from, std::move(to), std::move(stamp));
+  }
 
   void replace_downstream(const CkArrayIndex& from,
                           std::vector<CkArrayIndex>&& to, stamp_type&& stamp) {
@@ -184,13 +188,9 @@ class manageable : public T, public manageable_base_, public identity_holder_<ty
   }
 };
 
-template<typename Index>
-const typename managed_imprintable<Index>::identity_ptr& managed_imprintable<Index>::imprint(const locality_ptr& locality) const {
-  return dynamic_cast<identity_holder_<Index>*>(locality)->get_identity_();
-}
-
-template<typename Index>
-const Index& managed_imprintable<Index>::pick_root(const proxy_ptr& proxy, const Index* favored) const {
+template <typename Index>
+const Index& managed_imprintable<Index>::pick_root(const proxy_ptr& proxy,
+                                                   const Index* favored) const {
   if (favored) {
     return *favored;
   } else {

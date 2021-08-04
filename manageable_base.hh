@@ -1,6 +1,8 @@
 #ifndef __MANAGEABLE_BASE_HH__
 #define __MANAGEABLE_BASE_HH__
 
+#include <hypercomm/reductions/reducer.hpp>
+
 #include "common.hh"
 
 // NOTE eventually this will be replaced with a map
@@ -18,7 +20,7 @@ class manageable_base_ {
 
   association_ptr_ association_;
 
-  using stamp_type = reduction_id_t;
+  using stamp_type = typename reducer::stamp_type;
 
   manageable_base_(void) : association_(nullptr) {}
   manageable_base_(association_ptr_&& association)
@@ -50,10 +52,10 @@ class manageable_base_ {
     }
   }
 
+  virtual stamp_type get_stamp_(void) const = 0;
   virtual CkLocMgr *get_loc_mgr_(void) const = 0;
   virtual const CkArrayID& get_id_(void) const = 0;
   virtual const CkArrayIndex& get_index_(void) const = 0;
-  virtual const stamp_type& get_stamp_(void) const = 0;
   virtual const component_map& get_components_(void) const = 0;
 };
 

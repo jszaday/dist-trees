@@ -362,7 +362,7 @@ class tree_builder : public CBase_tree_builder, public array_listener {
 
       auto *msg = hypercomm::pack(curr, children, elt->get_stamp_());
       UsrToEnv(msg)->setEpIdx( // TODO change to locality
-        CkIndex_Test::replace_downstream({}, {}, {}));
+        CkIndex_Test::replace_downstream(nullptr));
       interceptor.deliver(aid, parent, msg);
 
       if (!children.empty()) {
