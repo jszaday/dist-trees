@@ -1,4 +1,4 @@
-**update:** the contents of this repo have been integrated into mainline Hypercomm. This repo has been archived, and its ideas will be actively maintained at the following url: https://github.com/jszaday/hypercomm
+**Update:** the contents of this repo have been integrated into mainline Hypercomm. This repo has been archived, and its ideas will be actively pursued at the following url: https://github.com/jszaday/hypercomm
 
 
 # Component-Based Distributed Tree Construction 
