@@ -1,3 +1,5 @@
+**update:** the contents of this repo have been integrated into mainline Hypercomm. This repo has been archived, and its ideas will be actively maintained at the following url: https://github.com/jszaday/hypercomm
+
 
 # Component-Based Distributed Tree Construction 
 This repo establishes a prototype, component-based scheme for distributed spanning tree construction. Its per-element operating granularity bestows it with robust guarantees regarding element migration, creation, and deletion. Effectively, each element always "knows" its parent and children, which allows them to fire-and-forget reductions at-will without having to be concerned about these complications. The exact nature of this scheme is discussed more thoroughly in [this document](https://docs.google.com/document/d/1hv-9qm1dXR8R1VJXgtyFHuhTUoa_izrm-jDXPqqkpas/edit#).
