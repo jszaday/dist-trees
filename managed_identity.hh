@@ -35,6 +35,8 @@ class managed_identity: public identity<Index> {
     CkAssert(inst_->association_);
     return reinterpret_vector(inst_->association_->downstream_);
   }
+
+  virtual std::shared_ptr<imprintable_base_> get_imprintable(void) const;
 };
 
 #endif

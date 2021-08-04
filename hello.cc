@@ -15,8 +15,8 @@ constexpr int kMultiplier = 2;
 /* readonly */ CProxy_tree_builder locProxy;
 
 namespace ck {
-  std::shared_ptr<imprintable<int>> span_all(void) {
-    return std::make_shared<managed_imprintable<int>>();
+  inline const std::shared_ptr<imprintable<int>>& span_all(void) {
+    return managed_imprintable<int>::instance();
   }
 }
 
@@ -24,6 +24,7 @@ void enroll_polymorphs(void) {
   hypercomm::init_polymorph_registry();
 
   if (CkMyRank() == 0) {
+    hypercomm::enroll<managed_imprintable<int>>();
     hypercomm::enroll<reduction_port<int>>();
   }
 }
@@ -65,7 +66,7 @@ class Test : public manageable<vil<CBase_Test, int>> {
     if (mine % 2 == 0) {
       auto next = conv2idx<CkArrayIndex>(mine + numElements + 1);
       auto child = locProxy.ckLocalBranch()->create_child(this, next);
-      thisProxy[next].insert(child.first, child.second);
+      thisProxy[next].insert(child.first, std::get<1>(child.second));
     } else if (mine < numElements) {
       thisProxy[conv2idx<CkArrayIndex>(mine)].ckDestroy();
       return;
